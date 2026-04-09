@@ -81,8 +81,15 @@ with tab2:
         
         # 계산 로직
         website_rate = int(base_rate * 0.8) # 홈페이지 요금 (비교 기준)
-        registered_price = int(base_rate * (1 + markup_pct/100)) # 엑스트라넷 등록가
-        final_sell_price = int(registered_price * (1 - ota_discount_pct/100)) # 최종 고객 노출가
+        # 목표하는 기준 요금(base_rate)을 지키기 위해, OTA 할인율을 역산하여 등록가를 뽑아냅니다.
+        # (만약 100% 할인을 입력해서 0으로 나누는 에러가 발생하지 않도록 안전장치 추가)
+
+        if ota_discount_pct < 100:
+            registered_price = int(base_rate / (1 - ota_discount_pct/100))
+        else:
+            registered_price = 0 
+
+        final_sell_price = int(registered_price * (1 - ota_discount_pct/100))
         net_price = int(final_sell_price * (1 - commission_pct/100)) # 호텔 실제 입금가
         
         diff_from_web = final_sell_price - website_rate
