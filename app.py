@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import datetime
-import plotly.express as px  # 👈 [신규 추가] 간트 차트를 위한 라이브러리
+import plotly.express as px  # 👈 간트 차트를 위한 라이브러리
 
 # --- 1. 전역 설정 및 데이터 ---
 st.set_page_config(page_title="앰버퓨어힐 전략 시뮬레이터", layout="wide")
@@ -48,13 +48,13 @@ with st.sidebar:
         st.session_state.ota_channels = ["Trip.com", "Booking.com", "Agoda"]
         st.rerun()
 
-# --- 메인 탭 구성 (경영진 리포트 탭 5 추가됨!) ---
+# --- 메인 탭 구성 ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 1. 기준 요금표", 
     "🧮 2. 요금 역산 시뮬", 
-    "🧱 3. 트립/부킹 실전", 
+    "🧱 3. 트립/부킹/아고다 실전", 
     "📅 4. 채널별 스케줄",
-    "📋 5. 경영진 리포트"  # 👈 [신규 추가] 기능 4
+    "📋 5. 경영진 리포트"  
 ])
 
 # ==========================================
@@ -79,7 +79,7 @@ with tab1:
         st.dataframe(format_price_df(FIXED_PRICE_TABLE), use_container_width=True)
 
 # ==========================================
-# TAB 2: 전략적 요금 할증 & 패리티 시뮬레이터 (+OCC/BEP 적용됨)
+# TAB 2: 전략적 요금 할증 & 패리티 시뮬레이터 (+OCC/BEP)
 # ==========================================
 with tab2:
     st.header("🧮 전략적 요금 할증 & 패리티 시뮬레이터")
@@ -90,7 +90,6 @@ with tab2:
     with col_input:
         st.subheader("1. 기준 및 할증 설정")
         
-        # 👈 [신규 추가] 기능 3: OCC 기반 BAR 추천
         use_occ = st.toggle("📈 예상 점유율(OCC) 기반 BAR 자동 추천")
         occ_pct = 50
         if use_occ:
@@ -102,7 +101,6 @@ with tab2:
             rate_keys = list(PRICE_TABLE[room_type].keys())
             default_idx = 2 # 기본 BAR6
             
-            # OCC 추천 로직 반영
             if use_occ:
                 if occ_pct >= 85: default_idx = 7 # BAR1
                 elif occ_pct >= 65: default_idx = 5 # BAR3
@@ -157,7 +155,6 @@ with tab2:
         st.divider()
         st.metric("💰 호텔 최종 입금가 (Net)", f"{net_income:,}원", f"수수료 {commission_val}% 제외")
 
-    # 👈 [신규 추가] 기능 2: 프로모션 손익분기점(BEP) 역산기
     st.write("---")
     with st.expander("⚖️ 프로모션 손익분기점(BEP) 타겟 역산기", expanded=False):
         st.markdown("현재 설정된 파격 할인율을 적용했을 때, **몇 객실을 더 팔아야 기존의 적은 할인율로 팔았을 때의 마진을 방어(본전)할 수 있는지** 계산합니다.")
@@ -169,13 +166,11 @@ with tab2:
             base_discount = st.number_input("비교할 기존의 얕은 할인율 (%)", value=20, step=1)
 
         with bep_c2:
-            # 얕은 할인 시의 마진(본전) 계산
             base_ota_price = int(reg_price * (1 - base_discount/100))
             base_net = int(base_ota_price * (1 - commission_val/100))
             base_profit_per_room = base_net - var_cost
             total_target_profit = base_profit_per_room * target_rooms
 
-            # 현재 파격 할인 세팅의 마진 계산
             new_profit_per_room = net_income - var_cost
 
             if new_profit_per_room > 0:
@@ -188,7 +183,7 @@ with tab2:
                 st.error("🚨 1객실당 순수익이 적자(변동원가 이하)입니다! 특가를 당장 멈추세요.")
 
 # ==========================================
-# TAB 3: 트립닷컴 / 부킹닷컴 실전 시뮬레이터 (블라인드 테스트 추가됨!)
+# TAB 3: 실전 시뮬레이터 (트립 / 부킹 / 아고다 / 블라인드 테스트 유지)
 # ==========================================
 with tab3:
     st.header("🧱 주요 OTA 실전 Stacking & 패리티 방어 시뮬레이터")
@@ -220,7 +215,8 @@ with tab3:
     st.write("---")
     st.subheader("2. 채널별 프로모션 중복(Stacking) 시뮬레이션")
     
-    sub_tab1, sub_tab2 = st.tabs(["🔵 트립닷컴 (완벽 합산형)", "🟦 부킹닷컴 (조건부 복리형)"])
+    # 👈 아고다 탭 추가
+    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["🔵 트립닷컴 (완벽 합산형)", "🟦 부킹닷컴 (조건부 복리형)", "🔴 아고다 (무한복리 & 마진컷)"])
     
     # ---------------- 트립닷컴 ----------------
     with sub_tab1:
@@ -358,43 +354,105 @@ with tab3:
         else:
             rb2.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_b):,}원** 저렴합니다! 할인 중복을 해제하세요.")
 
-    # 👈 [신규 추가] OTA 자체 쿠폰 블라인드 테스트 기능 (요청하신 기능 2번)
+    # ---------------- [신규 추가] 아고다 ----------------
+    with sub_tab3:
+        st.markdown("#### 아고다 실전 시뮬레이션 (마진컷 대비)")
+        st.markdown("아고다는 모든 할인이 **무자비한 순차적 복리**로 적용되며, 호텔의 통제를 벗어나는 **'마진컷(Agoda Funded)'**이 수시로 개입하여 패리티를 박살 냅니다.")
+        
+        col_a1, col_a2, col_a3 = st.columns(3)
+        with col_a1:
+            st.markdown("#### 1. 기본 프로모션")
+            is_agoda_base = st.toggle("기본 할인 (24h 특가 등)", key="t3_a_base")
+            agoda_base_rate = st.number_input("기본 할인율(%)", value=10, step=1, key="t3_a_base_r") if is_agoda_base else 0
+            
+        with col_a2:
+            st.markdown("#### 2. 채널 특가 & VIP")
+            is_agoda_mob = st.toggle("모바일/앱 전용 특가", value=True, key="t3_a_mob")
+            agoda_mob_rate = st.number_input("모바일 할인율(%)", value=10, step=1, key="t3_a_mob_r") if is_agoda_mob else 0
+            
+            is_agoda_vip = st.toggle("Agoda VIP", value=True, key="t3_a_vip")
+            agoda_vip_rate = st.selectbox("VIP 등급별 할인(%)", [12, 15, 18], index=1, key="t3_a_vip_r") if is_agoda_vip else 0
+            
+        with col_a3:
+            st.markdown("#### 3. 💣 아고다 마진컷")
+            st.caption("※ 호텔 몰래 수수료를 태우는 자체 쿠폰")
+            is_margin_cut = st.toggle("Agoda 마진컷 개입", value=True, key="t3_a_mc")
+            margin_cut_rate = st.slider("예상 마진컷 개입률(%)", min_value=0, max_value=20, value=8, step=1, key="t3_a_mc_r") if is_margin_cut else 0
+
+        # 아고다 무한 복리 계산 (순차 차감)
+        agoda_path = extranet_rate * (1 - agoda_base_rate/100) * (1 - agoda_mob_rate/100) * (1 - agoda_vip_rate/100) * (1 - margin_cut_rate/100)
+        final_price_a = int(agoda_path)
+        parity_diff_a = final_price_a - homepage_rate
+
+        applied_list_a = []
+        if is_agoda_base: applied_list_a.append(f"기본({agoda_base_rate}%)")
+        if is_agoda_mob: applied_list_a.append(f"모바일({agoda_mob_rate}%)")
+        if is_agoda_vip: applied_list_a.append(f"VIP({agoda_vip_rate}%)")
+        if is_margin_cut: applied_list_a.append(f"마진컷({margin_cut_rate}%)")
+
+        st.write("---")
+        st.subheader("🧾 아고다 최종 요금 산출 결과")
+        
+        promo_text_a = " ➔ ".join(applied_list_a) if applied_list_a else "적용된 할인 없음"
+        st.info(f"**순차 차감(복리) 순서:** {promo_text_a}")
+
+        ra1, ra2 = st.columns(2)
+        ra1.metric("🔴 고객 최종 결제가", f"{final_price_a:,}원", f"총 {len(applied_list_a)}단 복리 차감", delta_color="inverse")
+        
+        if parity_diff_a >= 0:
+            ra2.success(f"✅ **방어 성공:** 마진컷이 개입해도 홈페이지 요금보다 **{parity_diff_a:,}원** 비쌉니다.")
+        else:
+            ra2.error(f"🚨 **방어 실패 (패리티 붕괴):** 마진컷 개입 시 홈페이지 요금보다 **{abs(parity_diff_a):,}원** 저렴해집니다! 엑스트라넷 요금을 더 할증하거나 VIP 할인을 조정하세요.")
+
+    # ---------------- 블라인드 테스트 (유지 및 아고다 추가) ----------------
     st.write("---")
     st.subheader("3. 🕵️ 블라인드 테스트 (OTA 자체 특가 시뮬레이터)")
     st.markdown("우리가 통제할 수 없는 OTA의 **'자체 쿠폰'**, **'비공개 회원가(Private Rate)'**, **'지역 한정 특가'**가 위에서 계산된 최종 요금에 갑자기 덧붙었을 때, 홈페이지 패리티가 털리는지 미리 점검합니다.")
 
     with st.expander("🔍 최악의 시나리오 블라인드 테스트 실행하기", expanded=True):
-        blind_c1, blind_c2 = st.columns(2)
+        blind_c1, blind_c2, blind_c3 = st.columns(3)
         
         with blind_c1:
-            st.markdown("**[트립닷컴 추가 공격 시뮬레이션]**")
-            blind_trip_desc = st.text_input("예상되는 숨은 할인 (예: 트립닷컴 자체 쿠폰)", value="트립닷컴 VIP 시크릿 할인")
-            blind_trip_rate = st.number_input("숨은 할인율(%) - 트립닷컴", value=5, step=1)
+            st.markdown("**[트립닷컴 공격 시뮬레이션]**")
+            blind_trip_desc = st.text_input("예상 숨은 할인", value="트립닷컴 VIP 시크릿 할인")
+            blind_trip_rate = st.number_input("숨은 할인율(%) - 트립", value=5, step=1)
             
-            # 최종가(final_price_t)에서 한 번 더 복리로 깎임
             blind_final_t = int(final_price_t * (1 - blind_trip_rate/100))
             blind_diff_t = blind_final_t - homepage_rate
             
-            st.metric(f"🚨 최악의 시나리오 최종가", f"{blind_final_t:,}원", f"{blind_trip_desc} {blind_trip_rate}% 추가 할인", delta_color="inverse")
+            st.metric(f"🚨 최종가", f"{blind_final_t:,}원", f"{blind_trip_rate}% 추가 깎임", delta_color="inverse")
             if blind_diff_t >= 0:
-                st.success(f"✅ **철옹성 방어!** 숨은 할인이 붙어도 홈피보다 {blind_diff_t:,}원 비쌉니다.")
+                st.success(f"✅ **방어!** 홈피보다 {blind_diff_t:,}원 비쌈")
             else:
-                st.error(f"⚠️ **패리티 붕괴!** 숨은 할인이 붙으면 홈피보다 {abs(blind_diff_t):,}원 저렴해집니다.")
+                st.error(f"⚠️ **붕괴!** 홈피보다 {abs(blind_diff_t):,}원 저렴함")
 
         with blind_c2:
-            st.markdown("**[부킹닷컴 추가 공격 시뮬레이션]**")
-            blind_bk_desc = st.text_input("예상되는 숨은 할인 (예: 부킹닷컴 앱 전용 특가)", value="Booking.com 자체 프로모코드")
-            blind_bk_rate = st.number_input("숨은 할인율(%) - 부킹닷컴", value=10, step=1)
+            st.markdown("**[부킹닷컴 공격 시뮬레이션]**")
+            blind_bk_desc = st.text_input("예상 숨은 할인", value="Booking 자체 프로모코드")
+            blind_bk_rate = st.number_input("숨은 할인율(%) - 부킹", value=10, step=1)
             
-            # 최종가(final_price_b)에서 한 번 더 복리로 깎임
             blind_final_b = int(final_price_b * (1 - blind_bk_rate/100))
             blind_diff_b = blind_final_b - homepage_rate
             
-            st.metric(f"🚨 최악의 시나리오 최종가", f"{blind_final_b:,}원", f"{blind_bk_desc} {blind_bk_rate}% 추가 할인", delta_color="inverse")
+            st.metric(f"🚨 최종가", f"{blind_final_b:,}원", f"{blind_bk_rate}% 추가 깎임", delta_color="inverse")
             if blind_diff_b >= 0:
-                st.success(f"✅ **철옹성 방어!** 숨은 할인이 붙어도 홈피보다 {blind_diff_b:,}원 비쌉니다.")
+                st.success(f"✅ **방어!** 홈피보다 {blind_diff_b:,}원 비쌈")
             else:
-                st.error(f"⚠️ **패리티 붕괴!** 숨은 할인이 붙으면 홈피보다 {abs(blind_diff_b):,}원 저렴해집니다.")
+                st.error(f"⚠️ **붕괴!** 홈피보다 {abs(blind_diff_b):,}원 저렴함")
+                
+        with blind_c3:
+            st.markdown("**[아고다 추가 공격 시뮬레이션]**")
+            blind_ag_desc = st.text_input("예상 숨은 할인", value="Agoda 게릴라 쿠폰")
+            blind_ag_rate = st.number_input("숨은 할인율(%) - 아고다", value=5, step=1)
+            
+            blind_final_a = int(final_price_a * (1 - blind_ag_rate/100))
+            blind_diff_a = blind_final_a - homepage_rate
+            
+            st.metric(f"🚨 최종가", f"{blind_final_a:,}원", f"{blind_ag_rate}% 추가 깎임", delta_color="inverse")
+            if blind_diff_a >= 0:
+                st.success(f"✅ **방어!** 홈피보다 {blind_diff_a:,}원 비쌈")
+            else:
+                st.error(f"⚠️ **붕괴!** 홈피보다 {abs(blind_diff_a):,}원 저렴함")
 
 # ==========================================
 # TAB 4: 프로모션 스케줄 및 현황 관리 (+Gantt 차트)
