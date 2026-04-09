@@ -7,8 +7,11 @@ import math
 import re
 import io  
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import numpy as np
 
-# --- 1. 파이어베이스 초기화 ---
+# --- 1. 파이어베이스 초기화 (기본 DB + 항공/경쟁사 DB) ---
 if not firebase_admin._apps:
     try:
         fb_dict = st.secrets["firebase"]
@@ -17,6 +20,20 @@ if not firebase_admin._apps:
     except Exception as e:
         st.error(f"파이어베이스 연결 실패: {e}")
 db = firestore.client()
+
+# 항공/경쟁사 DB (사용자 제공 로직 연동)
+try:
+    app_flight = firebase_admin.get_app("flight_app")
+except ValueError:
+    if "firebase_flight" in st.secrets:
+        secret_dict = dict(st.secrets["firebase_flight"])
+        if "private_key" in secret_dict:
+            secret_dict["private_key"] = secret_dict["private_key"].replace("\\n", "\n")
+        cred_f = credentials.Certificate(secret_dict)
+        app_flight = firebase_admin.initialize_app(cred_f, name="flight_app")
+    else:
+        app_flight = None
+db_flight = firestore.client(app=app_flight) if app_flight else None
 
 # --- 2. 전역 설정 데이터 ---
 st.set_page_config(page_title="앰버퓨어힐 전략 시뮬레이터", layout="wide")
@@ -51,6 +68,36 @@ FIXED_PRICE_TABLE = {
     "PPV": {"UND1": 1104000, "UND2": 1154000, "MID1": 1154000, "MID2": 1304000, "UPP1": 1304000, "UPP2": 1554000, "UPP3":1704000},
 }
 FIXED_BAR0_TABLE = {"GDB": 298000, "GDF": 678000, "FFD": 704000, "FPT": 850000, "PPV": 1704000}
+
+# --- 외부 데이터 로딩 함수 (항공/경쟁사) ---
+@st.cache_data(ttl=600)
+def get_flight_data_only():
+    try:
+        if not db_flight: return pd.DataFrame()
+        docs = db_flight.collection('flight_prices').stream()
+        data = [d.to_dict() for d in docs]
+        df = pd.DataFrame(data)
+        if not df.empty and 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.tz_localize(None).dt.date
+            if 'search_date_str' in df.columns: df['search_date_str'] = df['search_date_str'].fillna('').astype(str)
+            else: df['search_date_str'] = 'unknown'
+            return df.sort_values('date')
+        return pd.DataFrame()
+    except: return pd.DataFrame()
+
+@st.cache_data(ttl=600)
+def get_comp_data_only():
+    try:
+        if not db_flight: return pd.DataFrame()
+        docs = db_flight.collection('hotel_comp_prices').stream()
+        data = [d.to_dict() for d in docs]
+        df = pd.DataFrame(data)
+        if not df.empty and 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.tz_localize(None).dt.date
+            if 'search_date_str' in df.columns: df['search_date_str'] = df['search_date_str'].fillna('').astype(str)
+            return df.sort_values('date')
+        return pd.DataFrame()
+    except: return pd.DataFrame()
 
 # --- 3. 로직 함수 (재고/시즌 기반 요금 산출) ---
 def get_season_details(date_obj):
@@ -304,38 +351,10 @@ if 'compare_label' not in st.session_state: st.session_state.compare_label = ""
 if 'manual_bars' not in st.session_state: st.session_state.manual_bars = {} 
 if 'ota_channels' not in st.session_state: st.session_state.ota_channels = ["Trip.com", "Booking.com", "Agoda"] 
 
-# --- 7. 사이드바 구성 ---
+# --- 7. 사이드바 ---
 with st.sidebar:
-    # 👈 [신규 추가: Feature 3] 스마트 액션 알림 (Yield Alerts)
-    st.header("🛎️ 스마트 액션 알림")
-    if not st.session_state.today_df.empty:
-        today_d = date.today()
-        # 오늘부터 14일 이내 데이터 스캔
-        lookahead = st.session_state.today_df[
-            (st.session_state.today_df['Date'] >= today_d) & 
-            (st.session_state.today_df['Date'] <= today_d + timedelta(days=14))
-        ]
-        alerts_found = False
-        if not lookahead.empty:
-            for _, row in lookahead.iterrows():
-                tot = row['Total']
-                av = row['Available']
-                if tot > 0:
-                    occ = (tot - av) / tot
-                    if occ >= 0.9:
-                        alerts_found = True
-                        st.error(f"🚨 {row['Date'].strftime('%m/%d')} [{row['RoomID']}] 마감 임박 (OCC {occ*100:.0f}%)! 하위 특가 닫기 권장")
-                    elif occ < 0.2 and row['Date'] <= today_d + timedelta(days=3):
-                        alerts_found = True
-                        st.warning(f"⚠️ {row['Date'].strftime('%m/%d')} [{row['RoomID']}] 임박 재고 위험 (OCC {occ*100:.0f}%)! 타임세일 검토")
-        
-        if not alerts_found:
-            st.success("✅ 최근 14일 내 긴급 액션 필요 객실 없음.")
-    else:
-        st.info("재고 데이터를 올리면 알림이 활성화됩니다.")
-        
-    st.divider()
-
+    # 👈 사이드바 알람(Yield Alerts) 삭제됨
+    
     st.header("📅 수정 내역 조회 (History)")
     try:
         all_docs = db.collection("daily_snapshots").select(["work_date"]).stream()
@@ -453,7 +472,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📅 4. 채널별 스케줄",
     "📋 5. 경영진 리포트",
     "🗓️ 6. 요금 프로젝션",
-    "📈 7. 예약 Pace 분석" # 👈 신규 탭
+    "📈 7. 예약 Pace 분석" # 👈 신규 탭 (기능 4)
 ])
 
 # ==========================================
@@ -657,54 +676,33 @@ with tab2:
         st.metric("💰 호텔 최종 입금가 (Net)", f"{net_income:,}원", f"수수료 {commission_val}% 제외")
 
     st.write("---")
-    with st.expander("⚖️ 프로모션 손익분기점(BEP) 타겟 역산기", expanded=False):
-        bep_c1, bep_c2 = st.columns(2)
-        with bep_c1:
-            var_cost = st.number_input("1객실당 변동원가 (청소비/세탁 등)", value=35000, step=1000)
-            target_rooms = st.number_input("기존 얕은 할인 시 예상 판매 객실수", value=10, step=1)
-            base_discount = st.number_input("비교할 기존의 얕은 할인율 (%)", value=20, step=1)
-        with bep_c2:
-            base_ota_price = int(reg_price * (1 - base_discount/100))
-            base_net = int(base_ota_price * (1 - commission_val/100))
-            base_profit_per_room = base_net - var_cost
-            total_target_profit = base_profit_per_room * target_rooms
-            new_profit_per_room = net_income - var_cost
-            if new_profit_per_room > 0:
-                required_rooms = math.ceil(total_target_profit / new_profit_per_room)
-                incremental_rooms = required_rooms - target_rooms
-                st.metric("파격 할인 시 1객실당 순이익", f"{new_profit_per_room:,}원", f"변동원가 {var_cost:,}원 제외됨")
-                st.info(f"💡 기존 마진({total_target_profit:,}원) 방어를 위해 최소 {required_rooms}객실을 팔아야 합니다. (평소보다 +{incremental_rooms}객실 더 필요)")
-            else:
-                st.error("🚨 1객실당 순수익이 적자(변동원가 이하)입니다! 특가를 당장 멈추세요.")
-
-    # 👈 [신규 추가: Feature 4] 연박 및 패키지 시뮬레이터
-    st.write("---")
-    st.subheader("🛏️+🍽️ 연박(LOS) 및 패키지 수익성 시뮬레이터")
-    with st.expander("🍷 패키지 상품 원가 및 마진 분석기", expanded=False):
+    # 👈 [신규 반영: Feature 2] 패키지/연박 마진 계산기 결합
+    st.subheader("🛏️+🍽️ 연박(LOS) 및 패키지 수익성 분석기")
+    with st.expander("⚖️ 마진컷 방어 및 패키지 원가 분석", expanded=False):
         pac_c1, pac_c2, pac_c3 = st.columns(3)
         with pac_c1:
             los = st.number_input("연박 일수 (LOS)", min_value=1, value=2, step=1, key="pkg_los")
-            fb_cost = st.number_input("1박당 부대시설/F&B 원가 (예: 조식 2인)", value=40000, step=1000, key="pkg_fb")
-            pkg_var_cost = st.number_input("1객실 1박당 변동원가", value=35000, step=1000, key="pkg_var")
+            fb_cost = st.number_input("1박당 패키지 포함 원가 (조식/부대시설)", value=40000, step=1000, key="pkg_fb")
+            pkg_var_cost = st.number_input("1객실 1박당 변동원가 (청소비 등)", value=35000, step=1000, key="pkg_var")
         with pac_c2:
-            addon_price = st.number_input("패키지 추가금 (Room Only 대비 얹을 가격)", value=60000, step=1000, key="pkg_addon")
+            addon_price = st.number_input("패키지 추가금 (Room Only 1박 요금 대비)", value=60000, step=1000, key="pkg_addon")
             
             room_only_sell_total = final_ota_price * los
             room_only_net_total = net_income * los
             room_only_profit = room_only_net_total - (pkg_var_cost * los)
             
-            pac_sell_price = room_only_sell_total + addon_price
+            pac_sell_price = room_only_sell_total + (addon_price * los)
             pac_net = pac_sell_price * (1 - commission_val/100)
             pac_cost = (pkg_var_cost * los) + (fb_cost * los)
             pac_profit = pac_net - pac_cost
             
         with pac_c3:
-            st.metric("패키지 최종 OTA 판매가", f"{int(pac_sell_price):,}원")
+            st.metric("패키지 최종 OTA 판매가(총액)", f"{int(pac_sell_price):,}원")
             st.metric("패키지 최종 순수익(Net)", f"{int(pac_profit):,}원", f"Room Only 대비 {int(pac_profit - room_only_profit):,}원 차이")
             if pac_profit > room_only_profit:
-                st.success("✅ 패키지 판매가 순익 면에서 더 유리합니다.")
+                st.success("✅ 패키지 구성이 룸온리보다 수익 면에서 더 유리합니다.")
             else:
-                st.error("🚨 수익성이 떨어집니다. 추가금을 올리거나 혜택을 줄이세요.")
+                st.error("🚨 패키지 수익성이 떨어집니다. 추가금을 올리거나 원가를 낮추세요.")
 
 # ==========================================
 # TAB 3: 트립/부킹/아고다 실전 시뮬레이터
@@ -987,11 +985,11 @@ with tab5:
     st.download_button("📥 보고서 파일 다운로드", data=final_report, file_name=f"Amber_Sales_Report_{date.today()}.txt")
 
 # ==========================================
-# TAB 6: 장기 요금 프로젝션 (경쟁사 비교 추가)
+# 👈 [신규 반영: Feature 1 & 3] TAB 6: 장기 요금 프로젝션 (경쟁사 & 항공권 복합 시각화)
 # ==========================================
 with tab6:
-    st.header("🗓️ 장기 요금 프로젝션 (판매가 추이 분석)")
-    st.markdown("사이드바에서 업로드된 **재고 데이터(DB)**를 기반으로 연말까지의 **홈페이지가**와 **OTA별 최종 판매가**를 시뮬레이션합니다.")
+    st.header("🗓️ 장기 요금 프로젝션 (경쟁사 & 수요 지표 복합 분석)")
+    st.markdown("사이드바에서 업로드된 **재고 데이터**를 기반으로 연말까지의 요금을 시뮬레이션하며, **파이어베이스의 경쟁사/항공권 DB**와 실시간으로 겹쳐서 보여줍니다.")
     
     if st.session_state.today_df.empty:
         st.warning("👈 사이드바에서 재고 엑셀/CSV 파일을 업로드하거나 과거 기록을 불러와주세요.")
@@ -1002,13 +1000,8 @@ with tab6:
         if room_df.empty:
             st.error("해당 객실에 대한 재고 데이터가 없습니다.")
         else:
-            # 👈 [신규 추가: Feature 1] 경쟁사 요금 시뮬레이터 토글
-            show_compset = st.toggle("⚔️ 경쟁사(Comp-set) 예상 평균가 시뮬레이션 추가")
-            comp_discount = 0
-            if show_compset:
-                comp_discount = st.slider("경쟁사 평균 가격대 (우리 호텔 대비 %)", -30, 30, -10, step=1, help="경쟁사가 보통 우리보다 얼마나 저렴한지/비싼지 설정합니다.")
-
             room_df = room_df.drop_duplicates(subset=['Date'], keep='last')
+            
             base_rates = []
             for idx, row in room_df.iterrows():
                 d = row['Date']
@@ -1035,44 +1028,69 @@ with tab6:
                 future_data['부킹 예상가'] = (future_data['OTA등록가(/0.65)'] * bk_mult).astype(int)
                 future_data['아고다 예상가'] = (future_data['OTA등록가(/0.65)'] * ag_mult).astype(int)
                 
-                display_cols = ['날짜', '기준가(BAR)', '홈페이지(-20%)', 'OTA등록가(/0.65)', '트립 예상가', '부킹 예상가', '아고다 예상가']
-                value_vars_cols = ['홈페이지(-20%)', '트립 예상가', '부킹 예상가', '아고다 예상가']
-
-                if show_compset:
-                    future_data['경쟁사 예상평균가'] = (future_data['OTA등록가(/0.65)'] * (trip_mult + bk_mult + ag_mult)/3 * (1 + comp_discount/100)).astype(int)
-                    display_cols.append('경쟁사 예상평균가')
-                    value_vars_cols.append('경쟁사 예상평균가')
-
-                future_data['날짜'] = future_data['Date'].apply(lambda x: x.strftime('%m/%d'))
+                # --- 경쟁사 & 항공 데이터 로드 및 병합 ---
+                df_comp_all = get_comp_data_only()
+                df_others_agg = pd.DataFrame()
+                if not df_comp_all.empty:
+                    latest_c = df_comp_all['search_date_str'].max()
+                    df_c_latest = df_comp_all[df_comp_all['search_date_str'] == latest_c]
+                    df_others = df_c_latest[df_c_latest['hotel_name'] != 'Amber_Pure_Hill']
+                    if not df_others.empty:
+                        df_others_agg = df_others.groupby('date')['price'].agg(['min','max','mean']).reset_index()
                 
-                pivot_proj = future_data[display_cols].set_index('날짜').T
+                df_flight_all = get_flight_data_only()
+                df_f_agg = pd.DataFrame()
+                if not df_flight_all.empty:
+                    latest_f = df_flight_all['search_date_str'].max()
+                    df_f_agg = df_flight_all[df_flight_all['search_date_str'] == latest_f][['date', 'min_price']]
                 
+                # --- Plotly 마스터 차트 그리기 ---
                 st.write("---")
-                st.subheader(f"🔍 {proj_room} 장기 요금 프로젝션 상세")
-                st.caption("※ 각 채널별 예상가는 **'탭 3'에서 세팅해둔 프로모션 할인율을 동일하게 적용**하여 동적으로 계산된 값입니다.")
-                st.dataframe(pivot_proj, use_container_width=True)
+                st.subheader("📈 채널별 패리티 및 시장 경쟁 추이 (Master Chart)")
                 
-                st.write("---")
-                st.subheader("📈 채널별 패리티 및 경쟁 추이 그래프")
-                chart_df = future_data.melt(id_vars=['Date'], value_vars=value_vars_cols, var_name='구분', value_name='최종요금')
-                fig_line = px.line(chart_df, x='Date', y='최종요금', color='구분', title=f"{proj_room} 판매가 시뮬레이션")
+                fig_line = make_subplots(specs=[[{"secondary_y": True}]])
                 
-                if show_compset:
-                    fig_line.update_traces(line=dict(dash="dot"), selector=dict(name="경쟁사 예상평균가"))
+                # 1. 경쟁사 밴드 (회색 배경)
+                if not df_others_agg.empty:
+                    fig_line.add_trace(go.Scatter(x=df_others_agg['date'], y=df_others_agg['max'], mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip'), secondary_y=False)
+                    fig_line.add_trace(go.Scatter(x=df_others_agg['date'], y=df_others_agg['min'], mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(200,200,200,0.3)', name='경쟁사 가격 밴드'), secondary_y=False)
+                    fig_line.add_trace(go.Scatter(x=df_others_agg['date'], y=df_others_agg['mean'], mode='lines', line=dict(color='gray', dash='dot'), name='경쟁사 평균가'), secondary_y=False)
                 
+                # 2. 우리 호텔 예상 최종가
+                fig_line.add_trace(go.Scatter(x=future_data['Date'], y=future_data['홈페이지(-20%)'], name='홈페이지(-20%)', line=dict(color='black', width=3)), secondary_y=False)
+                fig_line.add_trace(go.Scatter(x=future_data['Date'], y=future_data['트립 예상가'], name='트립 예상가', line=dict(color='#1f77b4', width=2)), secondary_y=False)
+                fig_line.add_trace(go.Scatter(x=future_data['Date'], y=future_data['부킹 예상가'], name='부킹 예상가', line=dict(color='#003580', width=2)), secondary_y=False)
+                fig_line.add_trace(go.Scatter(x=future_data['Date'], y=future_data['아고다 예상가'], name='아고다 예상가', line=dict(color='#e74c3c', width=2)), secondary_y=False)
+
+                # 3. 수요 강도 (항공권 최저가 - 이중축)
+                if not df_f_agg.empty:
+                    fig_line.add_trace(go.Scatter(x=df_f_agg['date'], y=df_f_agg['min_price'], name='항공권 최저가 (수요지표)', line=dict(color='orange', dash='dash', width=2)), secondary_y=True)
+
+                fig_line.update_layout(height=500, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                fig_line.update_yaxes(title_text="객실 가격 (원)", secondary_y=False)
+                fig_line.update_yaxes(title_text="항공권 가격 (원) - 점선", secondary_y=True, showgrid=False)
                 st.plotly_chart(fig_line, use_container_width=True)
 
+                # 표 렌더링
+                future_data['날짜'] = future_data['Date'].apply(lambda x: x.strftime('%m/%d'))
+                display_cols = ['날짜', '기준가(BAR)', '홈페이지(-20%)', 'OTA등록가(/0.65)', '트립 예상가', '부킹 예상가', '아고다 예상가']
+                pivot_proj = future_data[display_cols].set_index('날짜').T
+                st.write("---")
+                st.subheader(f"🔍 {proj_room} 요금 프로젝션 상세표")
+                st.dataframe(pivot_proj, use_container_width=True)
+
 # ==========================================
-# [신규 추가] TAB 7: 예약 리드타임 및 Pace 분석
+# 👈 [신규 반영: Feature 4] TAB 7: 예약 Pace(속도) 분석
 # ==========================================
 with tab7:
     st.header("📈 예약 리드타임 및 Pace(속도) 분석 차트")
-    st.markdown("어제(또는 과거 스냅샷) 대비 오늘 예약이 얼마나 들어오고 빠졌는지 **날짜별 픽업(Pick-up)** 속도를 시각화합니다.")
+    st.markdown("과거 스냅샷 대비 오늘 예약이 어느 날짜에 얼마나 들어오고 빠졌는지 **예약 증감률(Pick-up)**을 시각화합니다.")
     
     if st.session_state.today_df.empty or st.session_state.prev_df.empty:
-        st.warning("비교할 과거 스냅샷 데이터와 오늘 데이터가 모두 필요합니다. 사이드바에서 엑셀을 업로드하거나 과거 기록을 불러오세요.")
+        st.warning("👈 비교할 과거 스냅샷과 오늘 데이터가 모두 필요합니다. 사이드바에서 파일을 올리거나 불러오기를 진행하세요.")
     else:
         merged = pd.merge(st.session_state.today_df, st.session_state.prev_df, on=['Date', 'RoomID'], suffixes=('_curr', '_prev'))
+        # 이전 가용객실수 - 현재 가용객실수 = 팔린 객실수(픽업)
         merged['Pickup'] = merged['Available_prev'] - merged['Available_curr']
         
         if not merged.empty:
@@ -1087,7 +1105,7 @@ with tab7:
             st.plotly_chart(fig_pace, use_container_width=True)
             
             total_pickup = pace_by_date['Pickup'].sum()
-            st.info(f"💡 분석 기간 전체 누적 Pick-up: **{int(total_pickup)}객실**")
+            st.info(f"💡 전체 누적 Pick-up: **{int(total_pickup)}객실**")
             
             if total_pickup <= 0:
                 st.error("🚨 예약 페이스가 정체 또는 마이너스(취소 초과)입니다. 탭 4에서 타임세일 배치를 적극 검토하세요!")
