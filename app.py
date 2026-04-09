@@ -19,11 +19,11 @@ PRICE_TABLE = {
 }
 
 FIXED_PRICE_TABLE = {
-    "GDB": {"UND1": 298000, "UND2": 298000, "MID1": 298000, "MID2": 298000, "UPP1": 298000, "UPP2": 298000, "UPP3": 298000},
-    "GDF": {"UND1": 375000, "UND2": 410000, "MID1": 410000, "MID2": 488000, "UPP1": 488000, "UPP2": 578000, "UPP3": 678000},
-    "FFD": {"UND1": 353000, "UND2": 393000, "MID1": 433000, "MID2": 482000, "UPP1": 539000, "UPP2": 604000, "UPP3": 704000},
-    "FPT": {"UND1": 500000, "UND2": 550000, "MID1": 600000, "MID2": 650000, "UPP1": 700000, "UPP2": 750000, "UPP3": 850000},
-    "PPV(온수O)": {"UND1": 1004000, "UND2": 1154000, "MID1": 1154000, "MID2": 1304000, "UPP1": 1304000, "UPP2": 1554000, "UPP3": 1704000},
+    "GDB": {"UND1": 298000, "UND2": 298000, "MID1": 298000, "MID2": 298000, "UPP1": 298000, "UPP2": 298000, "UPP3":298000},
+    "GDF": {"UND1": 375000, "UND2": 410000, "MID1": 410000, "MID2": 488000, "UPP1": 488000, "UPP2": 578000, "UPP3":678000},
+    "FFD": {"UND1": 353000, "UND2": 393000, "MID1": 433000, "MID2": 482000, "UPP1": 539000, "UPP2": 604000, "UPP3":704000},
+    "FPT": {"UND1": 500000, "UND2": 550000, "MID1": 600000, "MID2": 650000, "UPP1": 700000, "UPP2": 750000, "UPP3":850000},
+    "PPV(온수O)": {"UND1": 1004000, "UND2": 1154000, "MID1": 1154000, "MID2": 1304000, "UPP1": 1304000, "UPP2": 1554000, "UPP3":1704000},
 }
 
 # --- 채널 관리 세션 ---
@@ -188,7 +188,7 @@ with tab2:
                 st.error("🚨 1객실당 순수익이 적자(변동원가 이하)입니다! 특가를 당장 멈추세요.")
 
 # ==========================================
-# TAB 3: 트립닷컴 / 부킹닷컴 실전 시뮬레이터 (그대로 유지)
+# TAB 3: 트립닷컴 / 부킹닷컴 실전 시뮬레이터 (블라인드 테스트 추가됨!)
 # ==========================================
 with tab3:
     st.header("🧱 주요 OTA 실전 Stacking & 패리티 방어 시뮬레이터")
@@ -358,16 +358,52 @@ with tab3:
         else:
             rb2.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_b):,}원** 저렴합니다! 할인 중복을 해제하세요.")
 
+    # 👈 [신규 추가] OTA 자체 쿠폰 블라인드 테스트 기능 (요청하신 기능 2번)
+    st.write("---")
+    st.subheader("3. 🕵️ 블라인드 테스트 (OTA 자체 특가 시뮬레이터)")
+    st.markdown("우리가 통제할 수 없는 OTA의 **'자체 쿠폰'**, **'비공개 회원가(Private Rate)'**, **'지역 한정 특가'**가 위에서 계산된 최종 요금에 갑자기 덧붙었을 때, 홈페이지 패리티가 털리는지 미리 점검합니다.")
+
+    with st.expander("🔍 최악의 시나리오 블라인드 테스트 실행하기", expanded=True):
+        blind_c1, blind_c2 = st.columns(2)
+        
+        with blind_c1:
+            st.markdown("**[트립닷컴 추가 공격 시뮬레이션]**")
+            blind_trip_desc = st.text_input("예상되는 숨은 할인 (예: 트립닷컴 자체 쿠폰)", value="트립닷컴 VIP 시크릿 할인")
+            blind_trip_rate = st.number_input("숨은 할인율(%) - 트립닷컴", value=5, step=1)
+            
+            # 최종가(final_price_t)에서 한 번 더 복리로 깎임
+            blind_final_t = int(final_price_t * (1 - blind_trip_rate/100))
+            blind_diff_t = blind_final_t - homepage_rate
+            
+            st.metric(f"🚨 최악의 시나리오 최종가", f"{blind_final_t:,}원", f"{blind_trip_desc} {blind_trip_rate}% 추가 할인", delta_color="inverse")
+            if blind_diff_t >= 0:
+                st.success(f"✅ **철옹성 방어!** 숨은 할인이 붙어도 홈피보다 {blind_diff_t:,}원 비쌉니다.")
+            else:
+                st.error(f"⚠️ **패리티 붕괴!** 숨은 할인이 붙으면 홈피보다 {abs(blind_diff_t):,}원 저렴해집니다.")
+
+        with blind_c2:
+            st.markdown("**[부킹닷컴 추가 공격 시뮬레이션]**")
+            blind_bk_desc = st.text_input("예상되는 숨은 할인 (예: 부킹닷컴 앱 전용 특가)", value="Booking.com 자체 프로모코드")
+            blind_bk_rate = st.number_input("숨은 할인율(%) - 부킹닷컴", value=10, step=1)
+            
+            # 최종가(final_price_b)에서 한 번 더 복리로 깎임
+            blind_final_b = int(final_price_b * (1 - blind_bk_rate/100))
+            blind_diff_b = blind_final_b - homepage_rate
+            
+            st.metric(f"🚨 최악의 시나리오 최종가", f"{blind_final_b:,}원", f"{blind_bk_desc} {blind_bk_rate}% 추가 할인", delta_color="inverse")
+            if blind_diff_b >= 0:
+                st.success(f"✅ **철옹성 방어!** 숨은 할인이 붙어도 홈피보다 {blind_diff_b:,}원 비쌉니다.")
+            else:
+                st.error(f"⚠️ **패리티 붕괴!** 숨은 할인이 붙으면 홈피보다 {abs(blind_diff_b):,}원 저렴해집니다.")
+
 # ==========================================
 # TAB 4: 프로모션 스케줄 및 현황 관리 (+Gantt 차트)
 # ==========================================
 with tab4:
     st.header("📅 채널별 프로모션 스케줄 및 현황 관리")
     
-    # 👈 [신규 추가] 기능 1: 통합 간트 차트 (Plotly)
     st.subheader("📊 전 채널 통합 프로모션 타임라인")
     
-    # 모든 채널의 스케줄 데이터를 하나로 모읍니다.
     all_promo_dfs = []
     for ch_name in st.session_state.ota_channels:
         state_key = f'promo_schedule_{ch_name}'
@@ -378,14 +414,12 @@ with tab4:
 
     if all_promo_dfs:
         master_df = pd.concat(all_promo_dfs, ignore_index=True)
-        # 날짜가 입력된 데이터만 필터링
         valid_df = master_df.dropna(subset=['시작일', '종료일'])
         
         if not valid_df.empty:
-            # Plotly Gantt Chart 렌더링
             fig = px.timeline(valid_df, x_start="시작일", x_end="종료일", y="채널명", 
                               color="채널명", text="프로모션명", hover_data=["할인율(%)"])
-            fig.update_yaxes(autorange="reversed") # 채널명이 위에서 아래로 정렬되도록 반전
+            fig.update_yaxes(autorange="reversed") 
             fig.update_layout(showlegend=False, height=300, margin=dict(t=20, b=20, l=0, r=0))
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -440,25 +474,18 @@ with tab4:
             st.caption("💡 표 하단의 빈 공간을 클릭하면 새로운 프로모션을 추가할 수 있으며, 셀을 클릭하고 키보드 'Delete' 키를 누르면 삭제됩니다.")
 
 # ==========================================
-# [업그레이드] TAB 5: 지능형 경영진 브리핑 리포트 
+# TAB 5: 지능형 경영진 브리핑 리포트 
 # ==========================================
 with tab5:
     st.header("📋 지능형 경영진 브리핑 리포트")
     st.markdown("현재 시뮬레이션 데이터와 프로모션 현황을 AI처럼 분석하여 보고서 초안을 생성합니다.")
 
-    # 1. 자동 분석 로직 (Intelligence)
-    # 탭 3에서 계산된 parity_diff_t(트립닷컴), parity_diff_b(부킹닷컴) 등을 활용
-    # (실제 코드에서는 변수 범위 확인 필요, 여기서는 탭3의 결과값을 리포트용으로 재계산)
-    
-    # 대표로 트립닷컴/부킹닷컴 패리티 상태 확인
     report_ext_rate = int(base_rate_t3 / 0.65)
     report_hp_rate = int(base_rate_t3 * 0.8)
     
-    # 임의로 현재 탭3에 설정된 할인율을 가져와서 분석 (예시)
     analysis_results = []
     danger_channels = []
     
-    # (예시 분석) 
     if 'total_discount_pct_t' in locals():
         if final_price_t < report_hp_rate:
             danger_channels.append(f"트립닷컴(차액: {final_price_t - report_hp_rate:,}원)")
@@ -467,19 +494,15 @@ with tab5:
         if final_price_b < report_hp_rate:
             danger_channels.append(f"부킹닷컴(차액: {final_price_b - report_hp_rate:,}원)")
 
-    # 2. 리포트 헤더 생성
     st.write("---")
     
-    # 상태별 헤드라인 자동 생성
     if danger_channels:
         st.error(f"### 🚨 전략 경보: 채널 패리티 붕괴 위험 감지\n현재 {', '.join(danger_channels)}의 최종 판매가가 홈페이지 요금보다 낮게 세팅되어 있습니다. 조정이 시급합니다.")
     else:
         st.success("### ✅ 전략 보고: 채널 패리티 안정 유지 중\n모든 OTA 채널의 최종 판매가가 공식 홈페이지 가격 이상으로 방어되고 있습니다.")
 
-    # 3. 브리핑 본문 구성
     st.subheader("📝 세일즈 전략 요약")
     
-    # 진행 중인 특가 요약
     active_promos = []
     for ch_name in st.session_state.ota_channels:
         state_key = f'promo_schedule_{ch_name}'
@@ -492,12 +515,10 @@ with tab5:
 
     promo_summary = "\n".join(active_promos) if active_promos else "   - 현재 진행 중인 주요 특가 없음"
 
-    # 자동 코멘트 생성
     dynamic_comment = ""
     if use_occ:
         dynamic_comment += f"* 현재 예상 점유율 {occ_pct}%에 맞춰 **{rate_level_t3}** 요금제를 전략적으로 선택하였습니다.\n"
     
-    # 최종 마크다운 조합
     final_report = f"""
 ## [보고] 온라인 세일즈 전략 및 마진 분석 ({datetime.date.today().strftime('%Y-%m-%d')})
 
@@ -510,7 +531,7 @@ with tab5:
 ### 2. 채널별 라이브 프로모션 현황
 {promo_summary}
 
-### 3. 세무 및 전략 제언
+### 3. 실무 및 전략 제언
 {dynamic_comment}
 * OTA 채널의 높은 할인율(45%+)에도 불구하고 엑스트라넷 등록가 할증을 통해 **평균 {((report_ext_rate/base_rate_t3)-1)*100:.1f}%의 버퍼**를 확보했습니다.
 * 현재 세팅 유지 시, 공식 홈페이지로의 예약 유도(Direct Booking) 경쟁력이 유지될 것으로 판단됩니다.
