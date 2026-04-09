@@ -116,37 +116,67 @@ with tab2:
         st.divider()
         st.metric("💰 호텔 최종 입금가 (Net)", f"{net_income:,}원", f"수수료 {commission_val}% 제외")
             
-# --- TAB 3: 채널별 프로모션 매트릭스 ---
+# --- TAB 3: 실전 OTA 프로모션 중복(Stacking) 시뮬레이터 ---
 with tab3:
-    st.header("주요 채널 최종 판매가 동시 비교")
-    st.write("기준 요금 하나를 설정하면, 각 채널별로 설정된 프로모션 규칙에 따라 최종 판매가가 어떻게 변하는지 한눈에 봅니다.")
+    st.header("🧱 트립닷컴 실전 Stacking 시뮬레이터")
+    st.markdown("트립닷컴의 실제 프로모션 레이어(Group 1~7) 규칙을 적용하여, 할인이 중복될 때 최종 판매가가 어떻게 변하는지 블록 조립하듯 테스트합니다.")
     
-    sim_base_rate = st.number_input("테스트할 기준 요금 (원)", value=315000, step=10000)
+    # 상단: 테스트할 기준 요금 입력 (탭 2에서 /0.65로 박제한 요금 등을 테스트)
+    test_base_rate = st.number_input("테스트할 엑스트라넷 등록 요금 (Selling Rate)", value=609231, step=10000)
+    st.write("---")
     
-    # 예시 프로모션 데이터 (원하는 대로 수정 가능)
-    promo_data = [
-        {"채널명": "Agoda", "마크업(%)": 15, "기본할인(%)": 10, "추가쿠폰(%)": 10, "할인방식": "복리"},
-        {"채널명": "Booking.com", "마크업(%)": 20, "기본할인(%)": 15, "추가쿠폰(%)": 0, "할인방식": "합산"},
-        {"채널명": "Expedia", "마크업(%)": 25, "기본할인(%)": 20, "추가쿠폰(%)": 10, "할인방식": "합산"},
-        {"채널명": "Direct (홈페이지)", "마크업(%)": 0, "기본할인(%)": 20, "추가쿠폰(%)": 0, "할인방식": "합산"}
-    ]
+    col1, col2, col3 = st.columns(3)
     
-    results = []
-    for p in promo_data:
-        mark_price = sim_base_rate * (1 + p["마크업(%)"]/100)
+    # Group 1: 기본 프로모션 (택 1)
+    with col1:
+        st.markdown("#### 🟦 Group 1 (기본 딜)")
+        st.caption("※ Non-Stackable: 이 중 하나만 적용됨")
+        g1_promo = st.radio("기본 프로모션 선택", ["적용 안함", "Basic Deal", "Early Bird", "Last Minute", "Minimum Stay"])
         
-        if p["할인방식"] == "복리":
-            discounted = mark_price * (1 - p["기본할인(%)"]/100) * (1 - p["추가쿠폰(%)"]/100)
-        else: # 합산
-            total_discount = p["기본할인(%)"] + p["추가쿠폰(%)"]
-            discounted = mark_price * (1 - total_discount/100)
-            
-        results.append({
-            "채널명": p["채널명"],
-            "등록 요금": f"{int(mark_price):,}원",
-            "총 적용 할인율": f"{p['기본할인(%)']+p['추가쿠폰(%)']}% ({p['할인방식']})",
-            "고객 최종 결제가": f"{int(discounted):,}원"
-        })
-        
-    st.dataframe(pd.DataFrame(results), use_container_width=True)
-    st.info("💡 위 프로모션 테이블은 하드코딩된 예시이며, 향후 st.data_editor를 붙여 직접 수치를 변경하게 업그레이드할 수 있습니다.")
+        if g1_promo != "적용 안함":
+            g1_rate = st.number_input(f"👉 {g1_promo} 할인율(%)", value=10, step=1)
+        else:
+            g1_rate = 0
+
+    # Group 2: 타겟 프로모션 (중복 가능)
+    with col2:
+        st.markdown("#### 🟦 Group 2 (타겟)")
+        st.caption("※ Stackable: 아래로 계속 중복 합산됨")
+        g2_mobile = st.toggle("📱 모바일 요금 (Mobile Rate)")
+        g2_rate = st.number_input("👉 모바일 할인율(%)", value=15, step=1) if g2_mobile else 0
+
+    # Group 5: 멤버십 (중복 가능)
+    with col3:
+        st.markdown("#### 🟧 Group 5 (멤버십)")
+        st.caption("※ Stackable: VIP 등급별 중복")
+        g5_member = st.toggle("👑 트립플러스 (TripPlus)")
+        g5_rate = st.number_input("👉 트립플러스 할인율(%)", value=15, step=1) if g5_member else 0
+
+    st.write("---")
+    
+    # --- 계산 로직 (트립닷컴의 합산형 원리 적용) ---
+    total_discount_pct = g1_rate + g2_rate + g5_rate
+    
+    # 만약 합산 할인율이 100%를 넘어가면 100%로 고정
+    total_discount_pct = min(total_discount_pct, 100) 
+    
+    discount_amount = int(test_base_rate * (total_discount_pct / 100))
+    final_price = test_base_rate - discount_amount
+    
+    # --- 결과 시각화 (두 번째 이미지처럼 영수증 형태로 표현) ---
+    st.subheader("🧾 최종 요금 산출 결과")
+    
+    # 적용된 프로모션 리스트업
+    applied_promos = []
+    if g1_promo != "적용 안함": applied_promos.append(f"{g1_promo} ({g1_rate}%)")
+    if g2_mobile: applied_promos.append(f"Mobile Rate ({g2_rate}%)")
+    if g5_member: applied_promos.append(f"TripPlus ({g5_rate}%)")
+    
+    promo_text = " + ".join(applied_promos) if applied_promos else "적용된 할인 없음"
+    
+    st.info(f"**활성화된 프로모션 조합:** {promo_text}")
+    
+    r1, r2, r3 = st.columns(3)
+    r1.metric("1. 엑스트라넷 판매가", f"{test_base_rate:,}원")
+    r2.metric(f"2. 총 합산 할인율 ({total_discount_pct}%)", f"-{discount_amount:,}원", "합산 계산됨", delta_color="inverse")
+    r3.metric("3. 고객 최종 결제가", f"{final_price:,}원", "홈페이지 요금과 패리티를 비교하세요", delta_color="off")
