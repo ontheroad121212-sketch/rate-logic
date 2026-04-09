@@ -149,35 +149,62 @@ with tab3:
     st.write("---")
     st.subheader("2. 채널별 프로모션 중복(Stacking) 시뮬레이션")
     
-    # 2. 채널별 서브 탭
-    sub_tab1, sub_tab2 = st.tabs(["🔵 트립닷컴 (합산형)", "🟦 부킹닷컴 (조건부 복리형)"])
+    sub_tab1, sub_tab2 = st.tabs(["🔵 트립닷컴 (완벽 합산형)", "🟦 부킹닷컴 (조건부 복리형)"])
     
     # ==========================================
-    # 트립닷컴 전용 로직 (생략 없음)
+    # 트립닷컴 전용 로직 (이미지 100% 반영)
     # ==========================================
     with sub_tab1:
         st.markdown("#### 트립닷컴 실전 시뮬레이션")
-        st.markdown("트립닷컴은 활성화된 프로모션의 %를 모두 더해 한 번에 깎는 **합산형** 방식을 주로 사용합니다.")
+        st.markdown("가로축(Group 1, 3, 4)은 중복이 불가하며, 세로축(Group 2, 5, 6, 7)은 선택된 가로축과 함께 모두 중복 **합산**됩니다.")
         
-        col_t1, col_t2, col_t3 = st.columns(3)
-        with col_t1:
-            st.markdown("#### 🟦 Group 1 (기본 딜)")
-            st.caption("※ Non-Stackable")
-            g1_promo = st.radio("기본 프로모션 선택", ["적용 안함", "Basic Deal", "Early Bird", "Last Minute", "Minimum Stay"], key="t3_g1")
-            g1_rate = st.number_input("Group 1 할인율(%)", value=10, step=1, key="t3_g1_r") if g1_promo != "적용 안함" else 0
-        with col_t2:
-            st.markdown("#### 🟦 Group 2 (타겟)")
-            st.caption("※ Stackable")
-            g2_mobile = st.toggle("📱 모바일 요금 (Group 2)", key="t3_g2")
-            g2_rate = st.number_input("모바일 할인율(%)", value=15, step=1, key="t3_g2_r") if g2_mobile else 0
-        with col_t3:
-            st.markdown("#### 🟧 Group 5 (멤버십)")
-            st.caption("※ Stackable")
-            g5_member = st.toggle("👑 트립플러스 (Group 5)", key="t3_g5")
-            g5_rate = st.number_input("트립플러스 할인율(%)", value=15, step=1, key="t3_g5_r") if g5_member else 0
+        # --- 가로축: Non-Stackable (택 1) ---
+        st.markdown("##### ⛔ Non-Stackable Discount (택 1)")
+        base_promo_type = st.radio("기본 뼈대가 될 프로모션을 1개만 선택하세요", 
+                                   ["적용 안함", "Group 1 (기본 딜)", "Group 3 (Package)", "Group 4 (Campaign)"], 
+                                   horizontal=True, key="t3_base_promo")
+
+        base_promo_rate = 0
+        base_promo_name = ""
+
+        if base_promo_type == "Group 1 (기본 딜)":
+            g1_type = st.selectbox("Group 1 상세 선택", ["Basic Deal", "Last Minute", "Early Bird", "Offer for Tonight", "Minimum Stay", "New Property Deal"], key="t3_g1_type")
+            base_promo_rate = st.number_input(f"{g1_type} 할인율(%)", value=10, step=1, key="t3_g1_r")
+            base_promo_name = f"{g1_type}"
+        elif base_promo_type == "Group 3 (Package)":
+            base_promo_rate = st.number_input("Package 할인율(%)", value=15, step=1, key="t3_g3_r")
+            base_promo_name = "Package"
+        elif base_promo_type == "Group 4 (Campaign)":
+            base_promo_rate = st.number_input("Campaign 할인율(%)", value=20, step=1, key="t3_g4_r")
+            base_promo_name = "Campaign"
+
+        st.divider()
+
+        # --- 세로축: Stackable (무제한 중복) ---
+        st.markdown("##### 🔽 Stackable Discount (위에서 선택한 항목과 중복 합산됨)")
+        col_s1, col_s2 = st.columns(2)
+
+        with col_s1:
+            st.markdown("**🟦 Group 2**")
+            g2_mobile = st.toggle("📱 Mobile Rate", key="t3_g2_mob")
+            g2_mob_rate = st.number_input("Mobile Rate 할인율(%)", value=15, step=1, key="t3_g2_mob_r") if g2_mobile else 0
+
+            g2_xpos = st.toggle("💻 XPOS", key="t3_g2_xpos")
+            g2_xpos_rate = st.number_input("XPOS 할인율(%)", value=10, step=1, key="t3_g2_xpos_r") if g2_xpos else 0
+
+        with col_s2:
+            st.markdown("**🟧🟩 Group 5, 6, 7**")
+            g5_member = st.toggle("👑 TripPlus (Group 5)", key="t3_g5")
+            g5_rate = st.number_input("TripPlus 할인율(%)", value=15, step=1, key="t3_g5_r") if g5_member else 0
+
+            g6_smart = st.toggle("💡 Smart Choice / Smart-C (Group 6)", key="t3_g6")
+            g6_rate = st.number_input("Smart Choice 할인율(%)", value=5, step=1, key="t3_g6_r") if g6_smart else 0
+
+            g7_coin = st.toggle("🪙 CoinPlus (Group 7)", key="t3_g7")
+            g7_rate = st.number_input("CoinPlus 할인율(%)", value=5, step=1, key="t3_g7_r") if g7_coin else 0
 
         # 합산 계산 로직
-        total_discount_pct_t = min(g1_rate + g2_rate + g5_rate, 100)
+        total_discount_pct_t = min(base_promo_rate + g2_mob_rate + g2_xpos_rate + g5_rate + g6_rate + g7_rate, 100)
         discount_amount_t = int(extranet_rate * (total_discount_pct_t / 100))
         final_price_t = extranet_rate - discount_amount_t
         parity_diff_t = final_price_t - homepage_rate
@@ -185,11 +212,14 @@ with tab3:
         st.write("---")
         st.subheader("🧾 트립닷컴 최종 요금 산출 결과")
         
-        # 적용된 프로모션 리스트업
+        # 영수증용 적용 프로모션 리스트업
         applied_promos_t = []
-        if g1_promo != "적용 안함": applied_promos_t.append(f"{g1_promo} ({g1_rate}%)")
-        if g2_mobile: applied_promos_t.append(f"Mobile Rate ({g2_rate}%)")
+        if base_promo_name: applied_promos_t.append(f"{base_promo_name} ({base_promo_rate}%)")
+        if g2_mobile: applied_promos_t.append(f"Mobile Rate ({g2_mob_rate}%)")
+        if g2_xpos: applied_promos_t.append(f"XPOS ({g2_xpos_rate}%)")
         if g5_member: applied_promos_t.append(f"TripPlus ({g5_rate}%)")
+        if g6_smart: applied_promos_t.append(f"Smart-C ({g6_rate}%)")
+        if g7_coin: applied_promos_t.append(f"CoinPlus ({g7_rate}%)")
         
         promo_text_t = " + ".join(applied_promos_t) if applied_promos_t else "적용된 할인 없음"
         st.info(f"**활성화된 프로모션 조합:** {promo_text_t}")
@@ -204,7 +234,7 @@ with tab3:
             rt2.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_t):,}원** 저렴합니다! 할인율을 낮추세요.")
 
     # ==========================================
-    # 부킹닷컴 전용 로직 (생략 없음)
+    # 부킹닷컴 전용 로직
     # ==========================================
     with sub_tab2:
         st.markdown("#### 부킹닷컴 실전 시뮬레이션")
