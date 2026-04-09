@@ -29,7 +29,7 @@ FIXED_PRICE_TABLE = {
 st.title("🏨 요금 및 프로모션 시뮬레이터")
 
 # 탭 구성
-tab1, tab2, tab3 = st.tabs(["📊 1. 전체 기준 요금표", "🧮 2. 요금 역산 시뮬레이터", "전략 3. 채널별 최종 판매가 비교"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 1. 전체 기준 요금표", "🧮 2. 요금 역산 시뮬레이터", "전략 3. 채널별 최종 판매가 비교", "📅 채널별 프로모션 스케줄 및 현황 관리"])
 
 # --- TAB 1: 전체 기준 요금표 (언제든 열람 & 홈페이지만 -20% 비교) ---
 with tab1:
@@ -362,3 +362,4 @@ with tab4:
     st.session_state.promo_schedule = edited_df.drop(columns=['상태'])
 
     st.caption("💡 표 하단의 빈 공간을 클릭하면 새로운 프로모션을 추가할 수 있으며, 셀을 클릭하고 'Delete' 키를 누르면 삭제됩니다.")
+
