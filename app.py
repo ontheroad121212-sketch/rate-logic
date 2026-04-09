@@ -1,74 +1,139 @@
 import streamlit as st
 import pandas as pd
+import math
 
-st.set_page_config(page_title="OTA 요금 할증 시뮬레이터", layout="wide")
+# --- 1. 전역 설정 및 데이터 ---
+st.set_page_config(page_title="요금 시뮬레이터", layout="wide")
 
-st.title("🏨 OTA 캠페인 요금 할증(Markup) 시뮬레이터")
-st.markdown("기준 요금(BAR)을 방어하면서 OTA의 고배율 할인 프로모션에 참여하기 위한 엑스트라넷 등록 요금을 계산합니다.")
+# 앰버 퓨어 힐 객실 데이터 (제공된 코드에서 추출)
+DYNAMIC_ROOMS = ["FDB", "FDE", "HDP", "HDT", "HDF"]
+FIXED_ROOMS = ["GDB", "GDF", "FFD", "FPT", "PPV"]
 
-# 1. 기준 요금 및 목표 설정 (사이드바)
-with st.sidebar:
-    st.header("1. 기준 요금 & 목표 설정")
-    bar_price = st.number_input("기준 요금 (BAR)", value=250000, step=10000)
-    
-    st.subheader("허용 가능한 실제 할인율")
-    min_discount = st.slider("최소 할인율 (%)", 0, 50, 10)
-    max_discount = st.slider("최대 할인율 (%)", 0, 50, 20)
-    
-    # 목표 판매가 계산
-    target_max_price = bar_price * (1 - (min_discount / 100))
-    target_min_price = bar_price * (1 - (max_discount / 100))
-    
-    st.info(f"**우리의 목표 판매가 범위:**\n\n{int(target_min_price):,}원 ~ {int(target_max_price):,}원")
-
-# 2. OTA 채널별 시뮬레이션
-st.header("2. 채널별 프로모션 시뮬레이션")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("채널 A (예: 35~45% 할인 요구)")
-    ota_a_name = st.text_input("채널명 입력 (A)", "OTA Channel A")
-    ota_a_discount = st.slider(f"{ota_a_name} 총 요구 할인율 (%)", 0, 80, 40)
-    
-    # 역산 로직: 목표 최저가 기준 할증 요금 계산
-    # 목표 금액 = 등록요금 * (1 - OTA할인율)  =>  등록요금 = 목표 금액 / (1 - OTA할인율)
-    if ota_a_discount < 100:
-        markup_price_a = target_min_price / (1 - (ota_a_discount / 100))
-        actual_sell_price_a = markup_price_a * (1 - (ota_a_discount / 100))
-        
-        st.success(f"**추천 엑스트라넷 등록 요금: {int(markup_price_a):,}원**")
-        st.write(f"👉 이 요금으로 등록 후 **{ota_a_discount}%** 할인이 적용되면, 최종 판매가는 **{int(actual_sell_price_a):,}원**이 됩니다. (기준가 대비 실제 할인율: {max_discount}%)")
-    else:
-        st.error("할인율은 100% 미만이어야 합니다.")
-
-with col2:
-    st.subheader("채널 B (중복 할인 구조)")
-    ota_b_name = st.text_input("채널명 입력 (B)", "OTA Channel B")
-    st.markdown("할인 중복 적용 방식 (복리 계산)")
-    
-    b_promo_1 = st.number_input("기본 프로모션 할인 (%)", value=20)
-    b_promo_2 = st.number_input("추가 쿠폰/멤버십 할인 (%)", value=15)
-    
-    # 복리(순차) 할인 계산: (1 - 0.20) * (1 - 0.15) = 0.8 * 0.85 = 0.68 (즉 32% 총 할인)
-    total_b_discount_rate = 1 - ((1 - b_promo_1/100) * (1 - b_promo_2/100))
-    
-    if total_b_discount_rate < 1:
-        markup_price_b = target_min_price / (1 - total_b_discount_rate)
-        actual_sell_price_b = markup_price_b * (1 - total_b_discount_rate)
-        
-        st.info(f"**실제 적용되는 총 OTA 할인율: {total_b_discount_rate*100:.1f}%**")
-        st.success(f"**추천 엑스트라넷 등록 요금: {int(markup_price_b):,}원**")
-        st.write(f"👉 이 요금으로 등록 시 최종 판매가는 **{int(actual_sell_price_b):,}원**입니다.")
-
-# 3. 요약 테이블
-st.header("3. 요금 설정 요약 테이블")
-summary_data = {
-    "채널명": [ota_a_name, ota_b_name],
-    "OTA 표면상 할인율": [f"{ota_a_discount}%", f"{total_b_discount_rate*100:.1f}%"],
-    "엑스트라넷 등록가(할증)": [f"{int(markup_price_a):,}원", f"{int(markup_price_b):,}원"],
-    "최종 판매가": [f"{int(actual_sell_price_a):,}원", f"{int(actual_sell_price_b):,}원"],
-    "BAR 대비 실제 할인율": [f"{max_discount}%", f"{max_discount}%"]
+PRICE_TABLE = {
+    "FDB": {"BAR8": 315000, "BAR7": 353000, "BAR6": 396000, "BAR5": 445000, "BAR4": 502000, "BAR3": 567000, "BAR2": 642000, "BAR1": 728000, "BAR0": 802000},
+    "FDE": {"BAR8": 352000, "BAR7": 390000, "BAR6": 433000, "BAR5": 482000, "BAR4": 539000, "BAR3": 604000, "BAR2": 679000, "BAR1": 765000, "BAR0": 839000},
+    "HDP": {"BAR8": 280000, "BAR7": 318000, "BAR6": 361000, "BAR5": 410000, "BAR4": 467000, "BAR3": 532000, "BAR2": 607000, "BAR1": 693000, "BAR0": 759000},
+    "HDT": {"BAR8": 250000, "BAR7": 288000, "BAR6": 331000, "BAR5": 380000, "BAR4": 437000, "BAR3": 502000, "BAR2": 577000, "BAR1": 663000, "BAR0": 729000},
+    "HDF": {"BAR8": 420000, "BAR7": 458000, "BAR6": 501000, "BAR5": 550000, "BAR4": 607000, "BAR3": 672000, "BAR2": 747000, "BAR1": 833000, "BAR0": 916000},
 }
 
-st.dataframe(pd.DataFrame(summary_data), use_container_width=True)
+FIXED_PRICE_TABLE = {
+    "GDB": {"UND1": 298000, "UND2": 298000, "MID1": 298000, "MID2": 298000, "UPP1": 298000, "UPP2": 298000},
+    "GDF": {"UND1": 375000, "UND2": 410000, "MID1": 410000, "MID2": 488000, "UPP1": 488000, "UPP2": 578000},
+    "FFD": {"UND1": 353000, "UND2": 393000, "MID1": 433000, "MID2": 482000, "UPP1": 539000, "UPP2": 604000},
+    "FPT": {"UND1": 500000, "UND2": 550000, "MID1": 600000, "MID2": 650000, "UPP1": 700000, "UPP2": 750000},
+    "PPV(온수O)": {"UND1": 1004000, "UND2": 1154000, "MID1": 1154000, "MID2": 1304000, "UPP1": 1304000, "UPP2": 1554000}, # 제공해주신 데이터 기준 반영
+}
+
+st.title("🏨 요금 및 프로모션 시뮬레이터")
+
+# 탭 구성
+tab1, tab2, tab3 = st.tabs(["📊 1. 전체 기준 요금표", "🧮 2. 요금 역산 시뮬레이터", "전략 3. 채널별 최종 판매가 비교"])
+
+# --- TAB 1: 전체 기준 요금표 (언제든 열람 & 홈페이지만 -20% 비교) ---
+with tab1:
+    st.header("전체 객실 기준 요금 (Master Rate)")
+    
+    # 홈페이지 요금 토글
+    show_direct_rate = st.toggle("🌐 홈페이지 요금 보기 (기준가 -20% 적용)")
+    multiplier = 0.8 if show_direct_rate else 1.0
+    
+    def format_price_df(data_dict):
+        df = pd.DataFrame(data_dict).T
+        # 홈페이지 요금 적용 시 100원 단위 버림 처리 등 포맷팅
+        return df.applymap(lambda x: f"{int(math.floor((x * multiplier)/1000)*1000):,}원" if pd.notnull(x) else "-")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("변동 요금제 (Dynamic)")
+        st.dataframe(format_price_df(PRICE_TABLE), use_container_width=True)
+    with col2:
+        st.subheader("고정 요금제 (Fixed)")
+        st.dataframe(format_price_df(FIXED_PRICE_TABLE), use_container_width=True)
+
+# --- TAB 2: 요금 역산 및 수익 시뮬레이터 ---
+with tab2:
+    st.header("마크업(할증) 및 입금가(Net) 계산기")
+    
+    col_input, col_result = st.columns([1, 2])
+    
+    with col_input:
+        st.subheader("1. 조건 입력")
+        room_type = st.selectbox("객실 타입", DYNAMIC_ROOMS + list(FIXED_PRICE_TABLE.keys()))
+        
+        # 선택한 객실에 따라 선택 가능한 요금 단계 변경
+        if room_type in DYNAMIC_ROOMS:
+            rate_level = st.selectbox("요금 단계", list(PRICE_TABLE[room_type].keys()))
+            base_rate = PRICE_TABLE[room_type][rate_level]
+        else:
+            rate_level = st.selectbox("시즌/요일", list(FIXED_PRICE_TABLE[room_type].keys()))
+            base_rate = FIXED_PRICE_TABLE[room_type][rate_level]
+            
+        st.write(f"**선택된 기준 요금:** {base_rate:,}원")
+        
+        st.divider()
+        markup_pct = st.number_input("임의 요금 인상 (Markup %)", value=20, step=5)
+        ota_discount_pct = st.number_input("OTA 요구 프로모션 할인 (%)", value=30, step=5)
+        commission_pct = st.number_input("채널 수수료 (%)", value=15, step=1)
+        
+    with col_result:
+        st.subheader("2. 시뮬레이션 결과")
+        
+        # 계산 로직
+        website_rate = int(base_rate * 0.8) # 홈페이지 요금 (비교 기준)
+        registered_price = int(base_rate * (1 + markup_pct/100)) # 엑스트라넷 등록가
+        final_sell_price = int(registered_price * (1 - ota_discount_pct/100)) # 최종 고객 노출가
+        net_price = int(final_sell_price * (1 - commission_pct/100)) # 호텔 실제 입금가
+        
+        diff_from_web = final_sell_price - website_rate
+        
+        # 메트릭 카드로 깔끔하게 표시
+        st.write("---")
+        m1, m2, m3 = st.columns(3)
+        m1.metric(label="🌐 공식 홈페이지 요금 (기준 -20%)", value=f"{website_rate:,}원")
+        m2.metric(label="⬆️ 엑스트라넷 등록가 (할증 적용)", value=f"{registered_price:,}원", delta=f"{markup_pct}% 인상")
+        m3.metric(label="🛒 최종 OTA 판매가 (프로모션 적용)", value=f"{final_sell_price:,}원", delta=f"{-ota_discount_pct}% 할인", delta_color="inverse")
+        
+        st.write("---")
+        st.metric(label="💰 최종 호텔 입금가 (Net Income)", value=f"{net_price:,}원", delta=f"수수료 {commission_pct}% 제외")
+        
+        # 인사이트 메시지
+        if diff_from_web < 0:
+            st.error(f"⚠️ **주의:** OTA 판매가가 자사 홈페이지보다 **{abs(diff_from_web):,}원** 더 저렴합니다. 마크업을 높이거나 할인을 줄이세요.")
+        else:
+            st.success(f"✅ **안전:** 홈페이지 요금보다 **{diff_from_web:,}원** 더 비싸게 세팅되어 채널 패리티가 방어됩니다.")
+
+# --- TAB 3: 채널별 프로모션 매트릭스 ---
+with tab3:
+    st.header("주요 채널 최종 판매가 동시 비교")
+    st.write("기준 요금 하나를 설정하면, 각 채널별로 설정된 프로모션 규칙에 따라 최종 판매가가 어떻게 변하는지 한눈에 봅니다.")
+    
+    sim_base_rate = st.number_input("테스트할 기준 요금 (원)", value=315000, step=10000)
+    
+    # 예시 프로모션 데이터 (원하는 대로 수정 가능)
+    promo_data = [
+        {"채널명": "Agoda", "마크업(%)": 15, "기본할인(%)": 10, "추가쿠폰(%)": 10, "할인방식": "복리"},
+        {"채널명": "Booking.com", "마크업(%)": 20, "기본할인(%)": 15, "추가쿠폰(%)": 0, "할인방식": "합산"},
+        {"채널명": "Expedia", "마크업(%)": 25, "기본할인(%)": 20, "추가쿠폰(%)": 10, "할인방식": "합산"},
+        {"채널명": "Direct (홈페이지)", "마크업(%)": 0, "기본할인(%)": 20, "추가쿠폰(%)": 0, "할인방식": "합산"}
+    ]
+    
+    results = []
+    for p in promo_data:
+        mark_price = sim_base_rate * (1 + p["마크업(%)"]/100)
+        
+        if p["할인방식"] == "복리":
+            discounted = mark_price * (1 - p["기본할인(%)"]/100) * (1 - p["추가쿠폰(%)"]/100)
+        else: # 합산
+            total_discount = p["기본할인(%)"] + p["추가쿠폰(%)"]
+            discounted = mark_price * (1 - total_discount/100)
+            
+        results.append({
+            "채널명": p["채널명"],
+            "등록 요금": f"{int(mark_price):,}원",
+            "총 적용 할인율": f"{p['기본할인(%)']+p['추가쿠폰(%)']}% ({p['할인방식']})",
+            "고객 최종 결제가": f"{int(discounted):,}원"
+        })
+        
+    st.dataframe(pd.DataFrame(results), use_container_width=True)
+    st.info("💡 위 프로모션 테이블은 하드코딩된 예시이며, 향후 st.data_editor를 붙여 직접 수치를 변경하게 업그레이드할 수 있습니다.")
