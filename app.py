@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, timedelta  # 👈 [수정됨] timedelta 추가
+from datetime import datetime, date, timedelta
 import firebase_admin
 from firebase_admin import credentials, firestore
 import math
@@ -131,7 +131,7 @@ def get_final_values(room_id, date_obj, avail, total, manual_bar=None):
         price = FIXED_PRICE_TABLE.get(room_id, {}).get(type_code, 0)
     return occ, bar, price, False 
 
-# --- 4. 파서 및 DB 로직 ---
+# --- 4. 무적의 파서 및 DB 로직 ---
 def robust_date_parser(d_val):
     if pd.isna(d_val): return None
     try:
@@ -345,23 +345,44 @@ with st.sidebar:
         else: st.warning("해당 날짜의 데이터가 없습니다.")
 
     st.divider()
-    st.header("📂 재고 파일(엑셀) 업로드")
+    
+    # 👈 [핵심 업그레이드] 무적의 엑셀/CSV 호환 파서
+    st.header("📂 재고 파일(엑셀/CSV) 업로드")
     st.caption("새로운 재고표를 올리면 이전 스냅샷과 자동 비교됩니다.")
-    files = st.file_uploader("리포트 업로드", accept_multiple_files=True)
+    files = st.file_uploader("리포트 업로드", type=["xls", "xlsx", "csv"], accept_multiple_files=True)
+    
     if files:
         new_extracted = []
-        ROW_MAP = {4:"GDB", 5:"GDF", 6:"FDB", 7:"FDE", 8:"FPT", 9:"FFD", 10:"HDP", 11:"HDT", 12:"HDF", 13:"PPV"}
         for f in files:
             date_tag = re.search(r'\d{8}', f.name).group() if re.search(r'\d{8}', f.name) else f.name
-            df_raw = pd.read_excel(f, header=None)
-            dates_raw = df_raw.iloc[2, 2:].values
-            for r_idx, rid in ROW_MAP.items():
-                if r_idx < len(df_raw):
-                    tot = pd.to_numeric(df_raw.iloc[r_idx, 1], errors='coerce')
-                    for d_val, av in zip(dates_raw, df_raw.iloc[r_idx, 2:].values):
-                        d_obj = robust_date_parser(d_val)
-                        if d_obj is None: continue
-                        new_extracted.append({"Date": d_obj, "RoomID": rid, "Available": pd.to_numeric(av, errors='coerce'), "Total": tot, "Tag": date_tag})
+            
+            # 1. 파일 포맷 자동 감지 및 로드
+            try:
+                df_raw = pd.read_excel(f, header=None)
+            except Exception:
+                f.seek(0)
+                try: df_raw = pd.read_csv(f, header=None)
+                except:
+                    f.seek(0)
+                    df_raw = pd.read_csv(f, header=None, encoding='euc-kr') # 한글 깨짐 방지
+            
+            # 2. 날짜 및 객실 동적 스캔 (로우 번호 하드코딩 제거)
+            if len(df_raw) > 2:
+                dates_raw = df_raw.iloc[2, 2:].values
+                for idx, row in df_raw.iterrows():
+                    rid_val = str(row.iloc[0]).strip().upper()
+                    if rid_val in ALL_ROOMS:
+                        tot = pd.to_numeric(row.iloc[1], errors='coerce')
+                        for d_val, av in zip(dates_raw, row.iloc[2:].values):
+                            d_obj = robust_date_parser(d_val)
+                            if d_obj is None: continue
+                            new_extracted.append({
+                                "Date": d_obj, 
+                                "RoomID": rid_val, 
+                                "Available": pd.to_numeric(av, errors='coerce'), 
+                                "Total": tot, 
+                                "Tag": date_tag
+                            })
 
         if new_extracted:
             new_df = pd.DataFrame(new_extracted)
@@ -379,7 +400,7 @@ with st.sidebar:
             else:
                 combined = pd.concat([new_df, st.session_state.today_df]).drop_duplicates(subset=['Date', 'RoomID'], keep='first')
                 st.session_state.today_df = combined.sort_values(by=['Date', 'RoomID'])
-            st.success("재고 데이터 로드 완료!")
+            st.success("재고 데이터 로드 및 파싱 완벽 성공!")
 
     st.divider()
     st.header("⚙️ 시뮬레이터 탭용 채널 관리")
@@ -405,7 +426,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 with tab1:
     st.header("📊 재고 기반 다이내믹 마스터 보드")
     if st.session_state.today_df.empty:
-        st.info("👈 사이드바에서 재고 엑셀 파일을 업로드하거나 과거 기록을 불러와주세요.")
+        st.info("👈 사이드바에서 재고 엑셀/CSV 파일을 업로드하거나 과거 기록을 불러와주세요.")
     else:
         curr, prev = st.session_state.today_df, st.session_state.prev_df
         
@@ -751,9 +772,19 @@ with tab3:
         final_price_a = int(agoda_path)
         parity_diff_a = final_price_a - homepage_rate
 
+        applied_list_a = []
+        if is_agoda_base: applied_list_a.append(f"기본({agoda_base_rate}%)")
+        if is_agoda_mob: applied_list_a.append(f"모바일({agoda_mob_rate}%)")
+        if is_agoda_vip: applied_list_a.append(f"VIP({agoda_vip_rate}%)")
+        if is_margin_cut: applied_list_a.append(f"마진컷({margin_cut_rate}%)")
+
         st.write("---")
+        st.subheader("🧾 아고다 최종 요금 산출 결과")
+        promo_text_a = " ➔ ".join(applied_list_a) if applied_list_a else "적용된 할인 없음"
+        st.info(f"**순차 차감(복리) 순서:** {promo_text_a}")
+
         ra1, ra2 = st.columns(2)
-        ra1.metric("🔴 고객 최종 결제가", f"{final_price_a:,}원", "마진컷 포함 복리 차감", delta_color="inverse")
+        ra1.metric("🔴 고객 최종 결제가", f"{final_price_a:,}원", f"총 {len(applied_list_a)}단 복리 차감", delta_color="inverse")
         if parity_diff_a >= 0: ra2.success(f"✅ 방어 성공: 마진컷 개입해도 홈피보다 {parity_diff_a:,}원 비쌈.")
         else: ra2.error(f"🚨 방어 실패: 마진컷 개입 시 홈피보다 {abs(parity_diff_a):,}원 저렴함!")
 
@@ -904,7 +935,7 @@ with tab6:
     st.markdown("사이드바에서 업로드된 **재고 데이터(DB)**를 기반으로 연말까지의 **홈페이지가**와 **OTA별 최종 판매가**를 시뮬레이션합니다.")
     
     if st.session_state.today_df.empty:
-        st.warning("👈 사이드바에서 재고 엑셀 파일을 업로드하거나 과거 기록을 불러와주세요.")
+        st.warning("👈 사이드바에서 재고 엑셀/CSV 파일을 업로드하거나 과거 기록을 불러와주세요.")
     else:
         proj_room = st.selectbox("분석할 객실 타입 선택", ALL_ROOMS, key="proj_room_t6")
         room_df = st.session_state.today_df[st.session_state.today_df['RoomID'] == proj_room].copy()
