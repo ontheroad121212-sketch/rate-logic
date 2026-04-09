@@ -126,7 +126,7 @@ with tab3:
     col_sel1, col_sel2 = st.columns(2)
     
     with col_sel1:
-        room_type_t3 = st.selectbox("객실 타입 선택", DYNAMIC_ROOMS + list(FIXED_PRICE_TABLE.keys()), key="t3_room", index=2) # 기본값 HDP 등 변경 가능
+        room_type_t3 = st.selectbox("객실 타입 선택", DYNAMIC_ROOMS + list(FIXED_PRICE_TABLE.keys()), key="t3_room", index=2)
         
     with col_sel2:
         if room_type_t3 in DYNAMIC_ROOMS:
@@ -153,76 +153,117 @@ with tab3:
     sub_tab1, sub_tab2 = st.tabs(["🔵 트립닷컴 (합산형)", "🟦 부킹닷컴 (조건부 복리형)"])
     
     # ==========================================
-    # 트립닷컴 전용 로직
+    # 트립닷컴 전용 로직 (생략 없음)
     # ==========================================
     with sub_tab1:
-        st.markdown("트립닷컴은 활성화된 프로모션의 %를 모두 더해 한 번에 깎는 **합산형** 방식을 사용합니다.")
+        st.markdown("#### 트립닷컴 실전 시뮬레이션")
+        st.markdown("트립닷컴은 활성화된 프로모션의 %를 모두 더해 한 번에 깎는 **합산형** 방식을 주로 사용합니다.")
         
         col_t1, col_t2, col_t3 = st.columns(3)
         with col_t1:
-            g1_promo = st.radio("Group 1 (기본 딜)", ["적용 안함", "Basic Deal", "Early Bird"], key="t3_g1")
+            st.markdown("#### 🟦 Group 1 (기본 딜)")
+            st.caption("※ Non-Stackable")
+            g1_promo = st.radio("기본 프로모션 선택", ["적용 안함", "Basic Deal", "Early Bird", "Last Minute", "Minimum Stay"], key="t3_g1")
             g1_rate = st.number_input("Group 1 할인율(%)", value=10, step=1, key="t3_g1_r") if g1_promo != "적용 안함" else 0
         with col_t2:
+            st.markdown("#### 🟦 Group 2 (타겟)")
+            st.caption("※ Stackable")
             g2_mobile = st.toggle("📱 모바일 요금 (Group 2)", key="t3_g2")
             g2_rate = st.number_input("모바일 할인율(%)", value=15, step=1, key="t3_g2_r") if g2_mobile else 0
         with col_t3:
+            st.markdown("#### 🟧 Group 5 (멤버십)")
+            st.caption("※ Stackable")
             g5_member = st.toggle("👑 트립플러스 (Group 5)", key="t3_g5")
             g5_rate = st.number_input("트립플러스 할인율(%)", value=15, step=1, key="t3_g5_r") if g5_member else 0
 
-        # 합산 계산
+        # 합산 계산 로직
         total_discount_pct_t = min(g1_rate + g2_rate + g5_rate, 100)
-        final_price_t = int(extranet_rate * (1 - total_discount_pct_t / 100))
+        discount_amount_t = int(extranet_rate * (total_discount_pct_t / 100))
+        final_price_t = extranet_rate - discount_amount_t
         parity_diff_t = final_price_t - homepage_rate
 
         st.write("---")
-        st.metric("🔵 트립닷컴 고객 최종 결제가", f"{final_price_t:,}원", f"총 {total_discount_pct_t}% 합산 차감", delta_color="inverse")
+        st.subheader("🧾 트립닷컴 최종 요금 산출 결과")
+        
+        # 적용된 프로모션 리스트업
+        applied_promos_t = []
+        if g1_promo != "적용 안함": applied_promos_t.append(f"{g1_promo} ({g1_rate}%)")
+        if g2_mobile: applied_promos_t.append(f"Mobile Rate ({g2_rate}%)")
+        if g5_member: applied_promos_t.append(f"TripPlus ({g5_rate}%)")
+        
+        promo_text_t = " + ".join(applied_promos_t) if applied_promos_t else "적용된 할인 없음"
+        st.info(f"**활성화된 프로모션 조합:** {promo_text_t}")
+
+        rt1, rt2 = st.columns(2)
+        rt1.metric("🔵 고객 최종 결제가", f"{final_price_t:,}원", f"총 {total_discount_pct_t}% 합산 차감", delta_color="inverse")
         
         # 패리티 알림
         if parity_diff_t >= 0:
-            st.success(f"✅ **방어 성공:** 홈페이지 요금보다 **{parity_diff_t:,}원** 비쌉니다.")
+            rt2.success(f"✅ **방어 성공:** 홈페이지 요금보다 **{parity_diff_t:,}원** 비쌉니다.")
         else:
-            st.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_t):,}원** 저렴합니다! 할인율을 낮추세요.")
+            rt2.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_t):,}원** 저렴합니다! 할인율을 낮추세요.")
 
     # ==========================================
-    # 부킹닷컴 전용 로직
+    # 부킹닷컴 전용 로직 (생략 없음)
     # ==========================================
     with sub_tab2:
-        st.markdown("부킹닷컴은 카테고리별로 할인이 겹칠 때 **순차적 차감(복리형)**이 적용되며, 고객에게 가장 유리한 트랙이 선택됩니다.")
+        st.markdown("#### 부킹닷컴 실전 시뮬레이션")
+        st.markdown("부킹닷컴은 카테고리별로 할인이 겹칠 때 **순차적 차감(복리형)**이 적용되며, 고객에게 가장 유리한 트랙이 자동 선택됩니다.")
         
         col_b1, col_b2, col_b3 = st.columns(3)
         with col_b1:
-            is_deep = st.toggle("기간 한정 특가 (집중형)", key="t3_b_deep")
+            st.markdown("#### 1. 집중형 특가")
+            st.caption("※ 단독 적용")
+            is_deep = st.toggle("기간 한정 특가", key="t3_b_deep")
             deep_rate = st.number_input("집중형 특가 할인율(%)", value=30, step=1, key="t3_b_deep_r") if is_deep else 0
         with col_b2:
+            st.markdown("#### 2. 캠페인 특가")
+            st.caption("※ Genius 중복")
             camp_promo = st.selectbox("캠페인 선택", ["선택 안함", "휴가 특가", "새해맞이 특가"], key="t3_b_camp")
             camp_rate = st.number_input("캠페인 할인율(%)", value=20, step=1, key="t3_b_camp_r") if camp_promo != "선택 안함" else 0
         with col_b3:
+            st.markdown("#### 3. 타겟/포트폴리오")
+            st.caption("※ 상호 중복")
             is_genius = st.toggle("Genius 프로그램", value=True, key="t3_b_gen")
             genius_rate = st.number_input("Genius 할인율(%)", value=10, step=1, key="t3_b_gen_r") if is_genius else 0
-            target_promo = st.selectbox("타겟 요금", ["선택 안함", "모바일 할인"], key="t3_b_tar")
+            target_promo = st.selectbox("타겟 요금", ["선택 안함", "모바일 할인", "국가별 특가"], key="t3_b_tar")
             target_rate = st.number_input("타겟 할인율(%)", value=10, step=1, key="t3_b_tar_r") if target_promo != "선택 안함" else 0
-            port_promo = st.selectbox("포트폴리오 특가", ["선택 안함", "조기 예약 특가"], key="t3_b_port")
+            port_promo = st.selectbox("포트폴리오 특가", ["선택 안함", "베이직 특가", "조기 예약 특가"], key="t3_b_port")
             port_rate = st.number_input("포트폴리오 할인율(%)", value=10, step=1, key="t3_b_port_r") if port_promo != "선택 안함" else 0
 
-        # 복리 계산 로직
+        # 복리 계산 및 트랙 로직
         if is_deep:
             final_price_b = int(extranet_rate * (1 - deep_rate/100))
+            active_path = "집중형 특가 (단독 적용 트랙)"
+            applied_list_b = [f"Deep Deal ({deep_rate}%)"]
         else:
             price_path_camp = extranet_rate * (1 - genius_rate/100) * (1 - camp_rate/100)
             price_path_port = extranet_rate * (1 - genius_rate/100) * (1 - target_rate/100) * (1 - port_rate/100)
             
             if camp_promo != "선택 안함" and price_path_camp < price_path_port:
                 final_price_b = int(price_path_camp)
+                active_path = "Genius + 캠페인 특가 트랙"
+                applied_list_b = [f"Genius ({genius_rate}%)", f"{camp_promo} ({camp_rate}%)"]
             else:
                 final_price_b = int(price_path_port)
+                active_path = "Genius + 타겟/포트폴리오 트랙"
+                applied_list_b = [f"Genius ({genius_rate}%)"] if is_genius else []
+                if target_promo != "선택 안함": applied_list_b.append(f"{target_promo} ({target_rate}%)")
+                if port_promo != "선택 안함": applied_list_b.append(f"{port_promo} ({port_rate}%)")
 
         parity_diff_b = final_price_b - homepage_rate
 
         st.write("---")
-        st.metric("🟦 부킹닷컴 고객 최종 결제가", f"{final_price_b:,}원", "순차(복리) 차감됨", delta_color="inverse")
+        st.subheader("🧾 부킹닷컴 최종 요금 산출 결과")
+        
+        promo_text_b = " ➔ ".join(applied_list_b) if applied_list_b else "적용된 할인 없음"
+        st.info(f"**활성화된 중복 규칙:** {active_path}\n\n**순차 차감(복리) 순서:** {promo_text_b}")
+
+        rb1, rb2 = st.columns(2)
+        rb1.metric("🟦 고객 최종 결제가", f"{final_price_b:,}원", "순차(복리) 차감됨", delta_color="inverse")
         
         # 패리티 알림
         if parity_diff_b >= 0:
-            st.success(f"✅ **방어 성공:** 홈페이지 요금보다 **{parity_diff_b:,}원** 비쌉니다.")
+            rb2.success(f"✅ **방어 성공:** 홈페이지 요금보다 **{parity_diff_b:,}원** 비쌉니다.")
         else:
-            st.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_b):,}원** 저렴합니다! 할인 중복을 해제하세요.")
+            rb2.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_b):,}원** 저렴합니다! 할인 중복을 해제하세요.")
