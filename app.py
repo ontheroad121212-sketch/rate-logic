@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import datetime
+import plotly.express as px  # 👈 [신규 추가] 간트 차트를 위한 라이브러리
 
 # --- 1. 전역 설정 및 데이터 ---
 st.set_page_config(page_title="앰버퓨어힐 전략 시뮬레이터", layout="wide")
@@ -26,7 +27,6 @@ FIXED_PRICE_TABLE = {
 }
 
 # --- 채널 관리 세션 ---
-# 탭 4 내부에 들어갈 채널 리스트를 세션으로 관리합니다.
 if 'ota_channels' not in st.session_state:
     st.session_state.ota_channels = ["Trip.com", "Booking.com", "Agoda", "야놀자", "여기어때"] 
 
@@ -48,12 +48,13 @@ with st.sidebar:
         st.session_state.ota_channels = ["Trip.com", "Booking.com", "Agoda"]
         st.rerun()
 
-# --- 메인 탭 구성 (깔끔하게 4개 고정) ---
-tab1, tab2, tab3, tab4 = st.tabs([
+# --- 메인 탭 구성 (경영진 리포트 탭 5 추가됨!) ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 1. 기준 요금표", 
     "🧮 2. 요금 역산 시뮬", 
     "🧱 3. 트립/부킹 실전", 
-    "📅 4. 채널별 프로모션 스케줄"
+    "📅 4. 채널별 스케줄",
+    "📋 5. 경영진 리포트"  # 👈 [신규 추가] 기능 4
 ])
 
 # ==========================================
@@ -78,7 +79,7 @@ with tab1:
         st.dataframe(format_price_df(FIXED_PRICE_TABLE), use_container_width=True)
 
 # ==========================================
-# TAB 2: 전략적 요금 할증 & 패리티 시뮬레이터
+# TAB 2: 전략적 요금 할증 & 패리티 시뮬레이터 (+OCC/BEP 적용됨)
 # ==========================================
 with tab2:
     st.header("🧮 전략적 요금 할증 & 패리티 시뮬레이터")
@@ -88,9 +89,29 @@ with tab2:
     
     with col_input:
         st.subheader("1. 기준 및 할증 설정")
+        
+        # 👈 [신규 추가] 기능 3: OCC 기반 BAR 추천
+        use_occ = st.toggle("📈 예상 점유율(OCC) 기반 BAR 자동 추천")
+        occ_pct = 50
+        if use_occ:
+            occ_pct = st.slider("예상 객실 점유율(OCC) %", 0, 100, 75, step=5)
+            
         room_type = st.selectbox("객실 타입", DYNAMIC_ROOMS + list(FIXED_PRICE_TABLE.keys()), index=2, key="t2_room") 
+        
         if room_type in DYNAMIC_ROOMS:
-            rate_level = st.selectbox("요금 단계", list(PRICE_TABLE[room_type].keys()), index=2, key="t2_rate") 
+            rate_keys = list(PRICE_TABLE[room_type].keys())
+            default_idx = 2 # 기본 BAR6
+            
+            # OCC 추천 로직 반영
+            if use_occ:
+                if occ_pct >= 85: default_idx = 7 # BAR1
+                elif occ_pct >= 65: default_idx = 5 # BAR3
+                elif occ_pct >= 40: default_idx = 3 # BAR5
+                elif occ_pct >= 20: default_idx = 1 # BAR7
+                else: default_idx = 0 # BAR8
+                st.caption(f"💡 점유율 {occ_pct}% 기준 추천 요금제: **{rate_keys[default_idx]}**")
+
+            rate_level = st.selectbox("요금 단계", rate_keys, index=default_idx, key="t2_rate") 
             base_rate = PRICE_TABLE[room_type][rate_level]
         else:
             rate_level = st.selectbox("시즌/요일", list(FIXED_PRICE_TABLE[room_type].keys()), key="t2_rate")
@@ -103,7 +124,7 @@ with tab2:
         markup_val = st.number_input("마크업 비율 (%)", value=35, step=1, key="t2_markup_v")
         
         st.divider()
-        ota_discount_val = st.number_input("OTA 프로모션 할인 (%)", value=45, step=1, key="t2_ota_d")
+        ota_discount_val = st.number_input("목표 OTA 프로모션 할인 (%)", value=45, step=1, key="t2_ota_d")
         commission_val = st.number_input("채널 수수료 (%)", value=15, step=1, key="t2_comm")
         
     with col_result:
@@ -136,8 +157,38 @@ with tab2:
         st.divider()
         st.metric("💰 호텔 최종 입금가 (Net)", f"{net_income:,}원", f"수수료 {commission_val}% 제외")
 
+    # 👈 [신규 추가] 기능 2: 프로모션 손익분기점(BEP) 역산기
+    st.write("---")
+    with st.expander("⚖️ 프로모션 손익분기점(BEP) 타겟 역산기", expanded=False):
+        st.markdown("현재 설정된 파격 할인율을 적용했을 때, **몇 객실을 더 팔아야 기존의 적은 할인율로 팔았을 때의 마진을 방어(본전)할 수 있는지** 계산합니다.")
+        bep_c1, bep_c2 = st.columns(2)
+        
+        with bep_c1:
+            var_cost = st.number_input("1객실당 변동원가 (청소비/어메니티/세탁 등)", value=35000, step=1000)
+            target_rooms = st.number_input("기존 얕은 할인 시 예상 판매 객실수 (목표치)", value=10, step=1)
+            base_discount = st.number_input("비교할 기존의 얕은 할인율 (%)", value=20, step=1)
+
+        with bep_c2:
+            # 얕은 할인 시의 마진(본전) 계산
+            base_ota_price = int(reg_price * (1 - base_discount/100))
+            base_net = int(base_ota_price * (1 - commission_val/100))
+            base_profit_per_room = base_net - var_cost
+            total_target_profit = base_profit_per_room * target_rooms
+
+            # 현재 파격 할인 세팅의 마진 계산
+            new_profit_per_room = net_income - var_cost
+
+            if new_profit_per_room > 0:
+                required_rooms = math.ceil(total_target_profit / new_profit_per_room)
+                incremental_rooms = required_rooms - target_rooms
+
+                st.metric("파격 할인 시 1객실당 순이익", f"{new_profit_per_room:,}원", f"변동원가 {var_cost:,}원 제외됨")
+                st.info(f"💡 기존 총 마진({total_target_profit:,}원)을 방어하려면 **최소 {required_rooms}객실**을 팔아야 합니다.\n\n즉, 프로모션 효과로 평소보다 **+{incremental_rooms}객실** 이상 추가 모객이 되어야 이득입니다.")
+            else:
+                st.error("🚨 1객실당 순수익이 적자(변동원가 이하)입니다! 특가를 당장 멈추세요.")
+
 # ==========================================
-# TAB 3: 트립닷컴 / 부킹닷컴 실전 시뮬레이터
+# TAB 3: 트립닷컴 / 부킹닷컴 실전 시뮬레이터 (그대로 유지)
 # ==========================================
 with tab3:
     st.header("🧱 주요 OTA 실전 Stacking & 패리티 방어 시뮬레이터")
@@ -307,16 +358,44 @@ with tab3:
         else:
             rb2.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_b):,}원** 저렴합니다! 할인 중복을 해제하세요.")
 
-
 # ==========================================
-# TAB 4: 프로모션 스케줄 및 현황 관리 (하위 탭 구조 적용!)
+# TAB 4: 프로모션 스케줄 및 현황 관리 (+Gantt 차트)
 # ==========================================
 with tab4:
     st.header("📅 채널별 프로모션 스케줄 및 현황 관리")
-    st.markdown("사이드바에서 추가한 모든 채널들이 아래에 탭으로 생성됩니다. 각 채널 탭에 들어가 독립적으로 스케줄을 관리하세요.")
-    st.write("---")
+    
+    # 👈 [신규 추가] 기능 1: 통합 간트 차트 (Plotly)
+    st.subheader("📊 전 채널 통합 프로모션 타임라인")
+    
+    # 모든 채널의 스케줄 데이터를 하나로 모읍니다.
+    all_promo_dfs = []
+    for ch_name in st.session_state.ota_channels:
+        state_key = f'promo_schedule_{ch_name}'
+        if state_key in st.session_state and not st.session_state[state_key].empty:
+            temp_df = st.session_state[state_key].copy()
+            temp_df['채널명'] = ch_name
+            all_promo_dfs.append(temp_df)
 
-    # 상태 업데이트용 공통 함수
+    if all_promo_dfs:
+        master_df = pd.concat(all_promo_dfs, ignore_index=True)
+        # 날짜가 입력된 데이터만 필터링
+        valid_df = master_df.dropna(subset=['시작일', '종료일'])
+        
+        if not valid_df.empty:
+            # Plotly Gantt Chart 렌더링
+            fig = px.timeline(valid_df, x_start="시작일", x_end="종료일", y="채널명", 
+                              color="채널명", text="프로모션명", hover_data=["할인율(%)"])
+            fig.update_yaxes(autorange="reversed") # 채널명이 위에서 아래로 정렬되도록 반전
+            fig.update_layout(showlegend=False, height=300, margin=dict(t=20, b=20, l=0, r=0))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.caption("진행 중인 프로모션 일정이 없습니다.")
+    else:
+        st.caption("프로모션 데이터를 입력하면 타임라인이 생성됩니다.")
+
+    st.write("---")
+    st.markdown("사이드바에서 추가한 모든 채널들이 아래에 탭으로 생성됩니다. 각 채널 탭에 들어가 독립적으로 스케줄을 관리하세요.")
+    
     today_dt = pd.to_datetime(datetime.date.today())
     def get_status(row):
         start = pd.to_datetime(row['시작일'])
@@ -326,15 +405,12 @@ with tab4:
         elif start > today_dt: return "🟡 진행 예정"
         else: return "🟢 진행 중"
 
-    # [핵심] 사이드바에서 관리되는 채널 리스트로 서브 탭을 생성!
     channel_tabs = st.tabs([f"📌 {ch}" for ch in st.session_state.ota_channels])
 
-    # 각 채널별로 에디터를 순회하며 생성
     for i, ch_name in enumerate(st.session_state.ota_channels):
         with channel_tabs[i]:
             st.subheader(f"📝 {ch_name} 프로모션 현황판")
             
-            # 1. 해당 채널 전용 초기 데이터 세팅
             state_key = f'promo_schedule_{ch_name}'
             if state_key not in st.session_state:
                 today = datetime.date.today()
@@ -343,25 +419,76 @@ with tab4:
                 ]
                 st.session_state[state_key] = pd.DataFrame(initial_data)
 
-            # 2. 데이터 불러오기 및 상태 자동 계산
             df = st.session_state[state_key]
             df['상태'] = df.apply(get_status, axis=1)
 
-            # 3. 엑셀 형태의 데이터 에디터 출력
             edited_df = st.data_editor(
                 df,
-                num_rows="dynamic", # 사용자 행 추가/삭제 허용
+                num_rows="dynamic",
                 use_container_width=True,
-                key=f"editor_tab4_{ch_name}", # 채널별 고유 ID 부여
+                key=f"editor_tab4_{ch_name}",
                 column_config={
                     "프로모션명": st.column_config.TextColumn(required=True),
                     "할인율(%)": st.column_config.NumberColumn(min_value=0, max_value=100, step=1, format="%d%%"),
                     "시작일": st.column_config.DateColumn(format="YYYY-MM-DD"),
                     "종료일": st.column_config.DateColumn(format="YYYY-MM-DD"),
-                    "상태": st.column_config.TextColumn(disabled=True) # 상태는 자동 계산되므로 수정 불가
+                    "상태": st.column_config.TextColumn(disabled=True) 
                 }
             )
 
-            # 4. 수정한 데이터를 다시 세션에 저장 (상태 컬럼 제외)
             st.session_state[state_key] = edited_df.drop(columns=['상태'])
             st.caption("💡 표 하단의 빈 공간을 클릭하면 새로운 프로모션을 추가할 수 있으며, 셀을 클릭하고 키보드 'Delete' 키를 누르면 삭제됩니다.")
+
+# ==========================================
+# TAB 5: 경영진 브리핑 리포트 자동 생성 
+# ==========================================
+# 👈 [신규 추가] 기능 4
+with tab5:
+    st.header("📋 경영진 브리핑 리포트")
+    st.markdown("현재 시뮬레이터에 세팅된 전략과 진행 중인 프로모션을 종합하여 원클릭 보고서를 생성합니다.")
+
+    # 1. 진행 중인 특가 스크랩
+    active_promos = []
+    for ch_name in st.session_state.ota_channels:
+        state_key = f'promo_schedule_{ch_name}'
+        if state_key in st.session_state:
+            df = st.session_state[state_key]
+            # 안전하게 진행 중인 특가만 필터링
+            df['상태_임시'] = df.apply(get_status, axis=1)
+            active = df[df['상태_임시'] == '🟢 진행 중']
+            for _, row in active.iterrows():
+                # 날짜가 NaT가 아닐 때만 포맷팅
+                end_str = row['종료일'].strftime('%m/%d') if pd.notnull(row['종료일']) else "미정"
+                active_promos.append(f"- **{ch_name}**: {row['프로모션명']} ({row['할인율(%)']}% 할인) ~ {end_str} 마감")
+
+    promo_str = "\n".join(active_promos) if active_promos else "- 현재 진행 중인 특가 없음"
+
+    # 2. 마크다운 리포트 생성
+    report_text = f"""
+## 🏨 앰버퓨어힐 온라인 세일즈 전략 브리핑 ({datetime.date.today().strftime('%Y-%m-%d')})
+
+### 1. 주요 객실 요금 방어 현황
+* **기준 객실/요금제:** {room_type_t3} ({rate_level_t3})
+* **기준가(BAR):** {base_rate_t3:,}원
+* **공식 홈페이지 사수선(-20%):** {homepage_rate:,}원
+* **OTA 엑스트라넷 방어용 등록가(/0.65):** {extranet_rate:,}원
+
+### 2. 현재 라이브(Live) 채널 프로모션
+{promo_str}
+
+### 3. 세일즈 매니저 코멘트
+* 홈페이지 최저가(패리티)를 완벽하게 방어하면서, OTA 채널의 명목 할인율을 최대화하는 **'/0.65 할증 전략'**을 활발히 운용 중입니다.
+* 무분별한 특가를 지양하고, 변동원가(청소/비품)를 고려한 BEP 역산 로직을 통해 실질적인 순수익(Net Income) 극대화에 집중하고 있습니다.
+"""
+
+    st.markdown("<div style='background-color:#f4f4f4; padding:20px; border-radius:10px; border: 1px solid #ddd;'>", unsafe_allow_html=True)
+    st.markdown(report_text)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.write("")
+    st.download_button(
+        label="📥 보고서 텍스트 파일로 다운로드", 
+        data=report_text, 
+        file_name=f"Sales_Report_{datetime.date.today().strftime('%Y%m%d')}.txt",
+        mime="text/plain"
+    )
