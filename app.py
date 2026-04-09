@@ -39,9 +39,9 @@ with tab1:
     multiplier = 0.8 if show_direct_rate else 1.0
     
     def format_price_df(data_dict):
-        df = pd.DataFrame(data_dict).T
-        # 홈페이지 요금 적용 시 100원 단위 버림 처리 등 포맷팅
-        return df.applymap(lambda x: f"{int(math.floor((x * multiplier)/1000)*1000):,}원" if pd.notnull(x) else "-")
+    df = pd.DataFrame(data_dict).T
+    # applymap -> map 으로 이름만 변경
+    return df.map(lambda x: f"{int(math.floor((x * multiplier)/1000)*1000):,}원" if pd.notnull(x) else "-")
 
     col1, col2 = st.columns(2)
     with col1:
