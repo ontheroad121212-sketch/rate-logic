@@ -52,6 +52,7 @@ with tab1:
         st.dataframe(format_price_df(FIXED_PRICE_TABLE), use_container_width=True)
 
 # --- TAB 2: 요금 역산 및 수익 시뮬레이터 ---
+# --- TAB 2: 요금 역산 및 수익 시뮬레이터 (생략 없음) ---
 with tab2:
     st.header("마크업(할증) 및 입금가(Net) 계산기")
     
@@ -72,33 +73,35 @@ with tab2:
         st.write(f"**선택된 기준 요금:** {base_rate:,}원")
         
         st.divider()
-        markup_pct = st.number_input("임의 요금 인상 (Markup %)", value=20, step=5)
-        ota_discount_pct = st.number_input("OTA 요구 프로모션 할인 (%)", value=30, step=5)
+        ota_discount_pct = st.number_input("OTA 요구 프로모션 할인 (%)", value=35, step=5)
         commission_pct = st.number_input("채널 수수료 (%)", value=15, step=1)
         
     with col_result:
         st.subheader("2. 시뮬레이션 결과")
         
         # 계산 로직
-        website_rate = int(base_rate * 0.8) # 홈페이지 요금 (비교 기준)
+        website_rate = int(base_rate * 0.8) # 홈페이지 요금 (비교 기준: BAR - 20%)
+        
         # 목표하는 기준 요금(base_rate)을 지키기 위해, OTA 할인율을 역산하여 등록가를 뽑아냅니다.
         # (만약 100% 할인을 입력해서 0으로 나누는 에러가 발생하지 않도록 안전장치 추가)
-
         if ota_discount_pct < 100:
-            registered_price = int(base_rate / (1 - ota_discount_pct/100))
+            registered_price = int(base_rate / (1 - (ota_discount_pct / 100)))
         else:
             registered_price = 0 
 
-        final_sell_price = int(registered_price * (1 - ota_discount_pct/100))
-        net_price = int(final_sell_price * (1 - commission_pct/100)) # 호텔 실제 입금가
+        final_sell_price = int(registered_price * (1 - (ota_discount_pct / 100)))
+        net_price = int(final_sell_price * (1 - (commission_pct / 100))) # 호텔 실제 입금가
         
         diff_from_web = final_sell_price - website_rate
+        
+        # 역산으로 인해 실제 엑스트라넷에 몇 % 할증되어 들어갔는지 역계산 (정보 제공용)
+        actual_markup_pct = round(((registered_price / base_rate) - 1) * 100, 1) if base_rate > 0 else 0
         
         # 메트릭 카드로 깔끔하게 표시
         st.write("---")
         m1, m2, m3 = st.columns(3)
         m1.metric(label="🌐 공식 홈페이지 요금 (기준 -20%)", value=f"{website_rate:,}원")
-        m2.metric(label="⬆️ 엑스트라넷 등록가 (할증 적용)", value=f"{registered_price:,}원", delta=f"{markup_pct}% 인상")
+        m2.metric(label="⬆️ 엑스트라넷 등록가 (할증 적용)", value=f"{registered_price:,}원", delta=f"실제 {actual_markup_pct}% 인상됨")
         m3.metric(label="🛒 최종 OTA 판매가 (프로모션 적용)", value=f"{final_sell_price:,}원", delta=f"{-ota_discount_pct}% 할인", delta_color="inverse")
         
         st.write("---")
@@ -106,10 +109,10 @@ with tab2:
         
         # 인사이트 메시지
         if diff_from_web < 0:
-            st.error(f"⚠️ **주의:** OTA 판매가가 자사 홈페이지보다 **{abs(diff_from_web):,}원** 더 저렴합니다. 마크업을 높이거나 할인을 줄이세요.")
+            st.error(f"⚠️ **주의:** OTA 판매가가 자사 홈페이지보다 **{abs(diff_from_web):,}원** 더 저렴합니다. 할인을 줄이세요.")
         else:
             st.success(f"✅ **안전:** 홈페이지 요금보다 **{diff_from_web:,}원** 더 비싸게 세팅되어 채널 패리티가 방어됩니다.")
-
+            
 # --- TAB 3: 채널별 프로모션 매트릭스 ---
 with tab3:
     st.header("주요 채널 최종 판매가 동시 비교")
