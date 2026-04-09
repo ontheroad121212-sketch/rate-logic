@@ -25,35 +25,36 @@ FIXED_PRICE_TABLE = {
     "PPV(온수O)": {"UND1": 1004000, "UND2": 1154000, "MID1": 1154000, "MID2": 1304000, "UPP1": 1304000, "UPP2": 1554000},
 }
 
-# --- 동적 채널 관리 세션 ---
-if 'custom_channels' not in st.session_state:
-    st.session_state.custom_channels = ["야놀자", "여기어때"] # 기본 생성해둘 커스텀 채널
+# --- 채널 관리 세션 ---
+# 탭 4 내부에 들어갈 채널 리스트를 세션으로 관리합니다.
+if 'ota_channels' not in st.session_state:
+    st.session_state.ota_channels = ["Trip.com", "Booking.com", "Agoda", "야놀자", "여기어때"] 
 
 st.title("🏨 앰버퓨어힐 요금 및 프로모션 통합 시뮬레이터")
 
-# --- 사이드바: 커스텀 채널 추가 ---
+# --- 사이드바: 탭 4용 커스텀 채널 추가 ---
 with st.sidebar:
-    st.header("⚙️ 새 채널 추가하기")
-    st.write("트립닷컴, 부킹닷컴 외의 OTA를 탭으로 추가하세요.")
+    st.header("⚙️ 스케줄러 채널 추가")
+    st.write("새로운 OTA를 추가하면 '탭 4' 내부에 전용 스케줄 관리 탭이 생성됩니다.")
     new_ota = st.text_input("추가할 OTA 명칭 (예: 익스피디아)")
     
-    if st.button("➕ 탭 생성"):
-        if new_ota and new_ota not in st.session_state.custom_channels:
-            st.session_state.custom_channels.append(new_ota)
+    if st.button("➕ 채널 탭 생성"):
+        if new_ota and new_ota not in st.session_state.ota_channels:
+            st.session_state.ota_channels.append(new_ota)
             st.rerun()
             
     st.divider()
-    if st.button("🗑️ 추가된 채널 모두 지우기"):
-        st.session_state.custom_channels = []
+    if st.button("🗑️ 추가된 채널 초기화"):
+        st.session_state.ota_channels = ["Trip.com", "Booking.com", "Agoda"]
         st.rerun()
 
-# --- 동적 탭 구성 ---
-# 기존 4개 탭 + 사용자가 추가한 커스텀 채널 탭들을 합칩니다.
-tab_names = ["📊 1. 기준 요금표", "🧮 2. 요금 역산 시뮬", "🧱 3. 트립/부킹 실전", "📅 4. 프로모션 스케줄"] + [f"🏢 {ch}" for ch in st.session_state.custom_channels]
-tabs = st.tabs(tab_names)
-
-tab1, tab2, tab3, tab4 = tabs[0], tabs[1], tabs[2], tabs[3]
-custom_tabs = tabs[4:]
+# --- 메인 탭 구성 (깔끔하게 4개 고정) ---
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 1. 기준 요금표", 
+    "🧮 2. 요금 역산 시뮬", 
+    "🧱 3. 트립/부킹 실전", 
+    "📅 4. 채널별 프로모션 스케줄"
+])
 
 # ==========================================
 # TAB 1: 전체 기준 요금표
@@ -136,7 +137,7 @@ with tab2:
         st.metric("💰 호텔 최종 입금가 (Net)", f"{net_income:,}원", f"수수료 {commission_val}% 제외")
 
 # ==========================================
-# TAB 3: 트립닷컴 / 부킹닷컴 실전 (사용자 오리지널 로직)
+# TAB 3: 트립닷컴 / 부킹닷컴 실전 시뮬레이터
 # ==========================================
 with tab3:
     st.header("🧱 주요 OTA 실전 Stacking & 패리티 방어 시뮬레이터")
@@ -306,122 +307,61 @@ with tab3:
         else:
             rb2.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_b):,}원** 저렴합니다! 할인 중복을 해제하세요.")
 
+
 # ==========================================
-# TAB 4: 프로모션 스케줄 및 현황 관리
+# TAB 4: 프로모션 스케줄 및 현황 관리 (하위 탭 구조 적용!)
 # ==========================================
 with tab4:
     st.header("📅 채널별 프로모션 스케줄 및 현황 관리")
-    st.markdown("각 OTA 채널에 세팅해 둔 프로모션의 기간과 할인율을 기록하고 관리합니다.")
+    st.markdown("사이드바에서 추가한 모든 채널들이 아래에 탭으로 생성됩니다. 각 채널 탭에 들어가 독립적으로 스케줄을 관리하세요.")
+    st.write("---")
 
-    if 'promo_schedule' not in st.session_state:
-        today = datetime.date.today()
-        initial_data = [
-            {"채널명": "Trip.com", "프로모션명": "Spring Early Bird", "그룹(구분)": "Group 1", "할인율(%)": 10, "시작일": today, "종료일": today + datetime.timedelta(days=30)},
-            {"채널명": "Booking.com", "프로모션명": "모바일 타겟 요금", "그룹(구분)": "타겟 요금", "할인율(%)": 10, "시작일": today - datetime.timedelta(days=10), "종료일": today + datetime.timedelta(days=90)},
-            {"채널명": "Agoda", "프로모션명": "24h 팝업 특가", "그룹(구분)": "타임세일", "할인율(%)": 45, "시작일": today - datetime.timedelta(days=2), "종료일": today - datetime.timedelta(days=1)},
-        ]
-        st.session_state.promo_schedule = pd.DataFrame(initial_data)
-
-    df = st.session_state.promo_schedule
+    # 상태 업데이트용 공통 함수
     today_dt = pd.to_datetime(datetime.date.today())
-    
     def get_status(row):
         start = pd.to_datetime(row['시작일'])
         end = pd.to_datetime(row['종료일'])
-        if pd.isna(start) or pd.isna(end):
-            return "⚪ 미정"
-        elif end < today_dt:
-            return "⚫ 종료됨"
-        elif start > today_dt:
-            return "🟡 진행 예정"
-        else:
-            return "🟢 진행 중"
+        if pd.isna(start) or pd.isna(end): return "⚪ 미정"
+        elif end < today_dt: return "⚫ 종료됨"
+        elif start > today_dt: return "🟡 진행 예정"
+        else: return "🟢 진행 중"
 
-    df['상태'] = df.apply(get_status, axis=1)
+    # [핵심] 사이드바에서 관리되는 채널 리스트로 서브 탭을 생성!
+    channel_tabs = st.tabs([f"📌 {ch}" for ch in st.session_state.ota_channels])
 
-    st.subheader("📝 프로모션 관리 대시보드")
-    
-    # 📌 동적으로 추가된 채널 목록을 에디터의 드롭다운 옵션에 합칩니다!
-    all_channel_options = ["Trip.com", "Booking.com", "Agoda", "Expedia", "Direct(홈페이지)"] + st.session_state.custom_channels
-    filter_ch = st.multiselect("특정 채널 필터링", options=all_channel_options)
-    display_df = df if not filter_ch else df[df['채널명'].isin(filter_ch)]
-
-    edited_df = st.data_editor(
-        display_df,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "채널명": st.column_config.SelectboxColumn(options=all_channel_options, required=True),
-            "프로모션명": st.column_config.TextColumn(required=True),
-            "할인율(%)": st.column_config.NumberColumn(min_value=0, max_value=100, step=1, format="%d%%"),
-            "시작일": st.column_config.DateColumn(format="YYYY-MM-DD"),
-            "종료일": st.column_config.DateColumn(format="YYYY-MM-DD"),
-            "상태": st.column_config.TextColumn(disabled=True) 
-        }
-    )
-
-    st.session_state.promo_schedule = edited_df.drop(columns=['상태'])
-    st.caption("💡 표 하단의 빈 공간을 클릭하면 새로운 프로모션을 추가할 수 있으며, 셀을 클릭하고 'Delete' 키를 누르면 삭제됩니다.")
-
-# ==========================================
-# TAB 5 ~ : 사용자 정의 채널 탭 (야놀자, 여기어때 등)
-# ==========================================
-for i, tab in enumerate(custom_tabs):
-    ch_name = st.session_state.custom_channels[i]
-    with tab:
-        st.header(f"📊 {ch_name} 전용 전략 시뮬레이터")
-        st.markdown(f"사이드바에서 추가하신 **{ch_name}**의 특가 중복 로직을 시뮬레이션합니다.")
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            room_dyn = st.selectbox("객실 타입", DYNAMIC_ROOMS + list(FIXED_PRICE_TABLE.keys()), index=2, key=f"dyn_room_{ch_name}")
-        with c2:
-            if room_dyn in DYNAMIC_ROOMS:
-                rate_dyn = st.selectbox("요금 단계", list(PRICE_TABLE[room_dyn].keys()), index=2, key=f"dyn_rate_{ch_name}")
-                base_dyn = PRICE_TABLE[room_dyn][rate_dyn]
-            else:
-                rate_dyn = st.selectbox("시즌/요일", list(FIXED_PRICE_TABLE[room_dyn].keys()), key=f"dyn_rate_{ch_name}")
-                base_dyn = FIXED_PRICE_TABLE[room_dyn][rate_dyn]
-                
-        hp_rate = int(base_dyn * 0.8)
-        ext_rate = int(base_dyn / 0.65)
-        
-        st.info(f"**[{room_dyn} - {rate_dyn}]** 홈페이지 사수선: **{hp_rate:,}원** / 엑스트라넷 박제 요금: **{ext_rate:,}원**")
-        st.divider()
-        
-        col_ctrl, col_view = st.columns([1, 2])
-        
-        with col_ctrl:
-            st.subheader("채널 프로모션 설정")
-            calc_type = st.radio("다중 할인 계산 방식", ["합산형 (할인율을 모두 더함)", "복리형 (순차적으로 차감)"], key=f"calc_{ch_name}")
+    # 각 채널별로 에디터를 순회하며 생성
+    for i, ch_name in enumerate(st.session_state.ota_channels):
+        with channel_tabs[i]:
+            st.subheader(f"📝 {ch_name} 프로모션 현황판")
             
-            st.write(f"**{ch_name} 활성화 프로모션**")
-            if f'promo_df_{ch_name}' not in st.session_state:
-                st.session_state[f'promo_df_{ch_name}'] = pd.DataFrame([{"프로모션명": "특가 기획전", "할인율(%)": 10}])
-            
-            edited_promo_dyn = st.data_editor(st.session_state[f'promo_df_{ch_name}'], num_rows="dynamic", key=f"edit_{ch_name}", use_container_width=True)
-            st.session_state[f'promo_df_{ch_name}'] = edited_promo_dyn
+            # 1. 해당 채널 전용 초기 데이터 세팅
+            state_key = f'promo_schedule_{ch_name}'
+            if state_key not in st.session_state:
+                today = datetime.date.today()
+                initial_data = [
+                    {"프로모션명": "예시 특가", "할인율(%)": 10, "시작일": today, "종료일": today + datetime.timedelta(days=7)}
+                ]
+                st.session_state[state_key] = pd.DataFrame(initial_data)
 
-        with col_view:
-            st.subheader("최종 가격 및 패리티 확인")
-            
-            promo_list = edited_promo_dyn['할인율(%)'].tolist()
-            if calc_type == "합산형 (할인율을 모두 더함)":
-                total_disc = min(sum(promo_list), 100)
-                final_p = int(ext_rate * (1 - total_disc/100))
-                desc = f"총 {total_disc}% 합산 차감"
-            else:
-                curr_p = float(ext_rate)
-                for d in promo_list:
-                    curr_p *= (1 - d/100)
-                final_p = int(curr_p)
-                desc = "순차(복리) 차감 적용"
-            
-            diff = final_p - hp_rate
-            
-            md1, md2 = st.columns(2)
-            md1.metric(f"{ch_name} 최종 결제가", f"{final_p:,}원", desc, delta_color="inverse")
-            if diff >= 0:
-                md2.success(f"✅ **패리티 안전:** 홈피보다 {diff:,}원 비쌈")
-            else:
-                md2.error(f"🚨 **패리티 위험:** 홈피보다 {abs(diff):,}원 저렴함")
+            # 2. 데이터 불러오기 및 상태 자동 계산
+            df = st.session_state[state_key]
+            df['상태'] = df.apply(get_status, axis=1)
+
+            # 3. 엑셀 형태의 데이터 에디터 출력
+            edited_df = st.data_editor(
+                df,
+                num_rows="dynamic", # 사용자 행 추가/삭제 허용
+                use_container_width=True,
+                key=f"editor_tab4_{ch_name}", # 채널별 고유 ID 부여
+                column_config={
+                    "프로모션명": st.column_config.TextColumn(required=True),
+                    "할인율(%)": st.column_config.NumberColumn(min_value=0, max_value=100, step=1, format="%d%%"),
+                    "시작일": st.column_config.DateColumn(format="YYYY-MM-DD"),
+                    "종료일": st.column_config.DateColumn(format="YYYY-MM-DD"),
+                    "상태": st.column_config.TextColumn(disabled=True) # 상태는 자동 계산되므로 수정 불가
+                }
+            )
+
+            # 4. 수정한 데이터를 다시 세션에 저장 (상태 컬럼 제외)
+            st.session_state[state_key] = edited_df.drop(columns=['상태'])
+            st.caption("💡 표 하단의 빈 공간을 클릭하면 새로운 프로모션을 추가할 수 있으며, 셀을 클릭하고 키보드 'Delete' 키를 누르면 삭제됩니다.")
