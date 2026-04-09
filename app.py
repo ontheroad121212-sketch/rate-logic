@@ -131,7 +131,7 @@ def get_final_values(room_id, date_obj, avail, total, manual_bar=None):
         price = FIXED_PRICE_TABLE.get(room_id, {}).get(type_code, 0)
     return occ, bar, price, False 
 
-# --- 4. 무적의 파서 및 DB 로직 ---
+# --- 4. 파서 및 DB 로직 ---
 def robust_date_parser(d_val):
     if pd.isna(d_val): return None
     try:
@@ -345,8 +345,6 @@ with st.sidebar:
         else: st.warning("해당 날짜의 데이터가 없습니다.")
 
     st.divider()
-    
-    # 👈 [핵심 업그레이드] 무적의 엑셀/CSV 호환 파서
     st.header("📂 재고 파일(엑셀/CSV) 업로드")
     st.caption("새로운 재고표를 올리면 이전 스냅샷과 자동 비교됩니다.")
     files = st.file_uploader("리포트 업로드", type=["xls", "xlsx", "csv"], accept_multiple_files=True)
@@ -355,8 +353,6 @@ with st.sidebar:
         new_extracted = []
         for f in files:
             date_tag = re.search(r'\d{8}', f.name).group() if re.search(r'\d{8}', f.name) else f.name
-            
-            # 1. 파일 포맷 자동 감지 및 로드
             try:
                 df_raw = pd.read_excel(f, header=None)
             except Exception:
@@ -364,9 +360,8 @@ with st.sidebar:
                 try: df_raw = pd.read_csv(f, header=None)
                 except:
                     f.seek(0)
-                    df_raw = pd.read_csv(f, header=None, encoding='euc-kr') # 한글 깨짐 방지
+                    df_raw = pd.read_csv(f, header=None, encoding='euc-kr')
             
-            # 2. 날짜 및 객실 동적 스캔 (로우 번호 하드코딩 제거)
             if len(df_raw) > 2:
                 dates_raw = df_raw.iloc[2, 2:].values
                 for idx, row in df_raw.iterrows():
@@ -421,7 +416,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 ])
 
 # ==========================================
-# TAB 1: 재고 기반 다이내믹 마스터 보드 (사용자 원본 로직)
+# TAB 1: 재고 기반 다이내믹 마스터 보드
 # ==========================================
 with tab1:
     st.header("📊 재고 기반 다이내믹 마스터 보드")
@@ -779,12 +774,8 @@ with tab3:
         if is_margin_cut: applied_list_a.append(f"마진컷({margin_cut_rate}%)")
 
         st.write("---")
-        st.subheader("🧾 아고다 최종 요금 산출 결과")
-        promo_text_a = " ➔ ".join(applied_list_a) if applied_list_a else "적용된 할인 없음"
-        st.info(f"**순차 차감(복리) 순서:** {promo_text_a}")
-
         ra1, ra2 = st.columns(2)
-        ra1.metric("🔴 고객 최종 결제가", f"{final_price_a:,}원", f"총 {len(applied_list_a)}단 복리 차감", delta_color="inverse")
+        ra1.metric("🔴 고객 최종 결제가", f"{final_price_a:,}원", "마진컷 포함 복리 차감", delta_color="inverse")
         if parity_diff_a >= 0: ra2.success(f"✅ 방어 성공: 마진컷 개입해도 홈피보다 {parity_diff_a:,}원 비쌈.")
         else: ra2.error(f"🚨 방어 실패: 마진컷 개입 시 홈피보다 {abs(parity_diff_a):,}원 저렴함!")
 
@@ -928,7 +919,7 @@ with tab5:
     st.download_button("📥 보고서 파일 다운로드", data=final_report, file_name=f"Amber_Sales_Report_{date.today()}.txt")
 
 # ==========================================
-# TAB 6: 장기 요금 프로젝션 (DB 연동)
+# TAB 6: 장기 요금 프로젝션 (DB 연동 및 중복 날짜 오류 방지)
 # ==========================================
 with tab6:
     st.header("🗓️ 장기 요금 프로젝션 (판매가 추이 분석)")
@@ -943,6 +934,9 @@ with tab6:
         if room_df.empty:
             st.error("해당 객실에 대한 재고 데이터가 없습니다.")
         else:
+            # 👈 [오류 수정] PyArrow Duplicate Columns 에러 방지를 위해 날짜 중복 제거
+            room_df = room_df.drop_duplicates(subset=['Date'], keep='last')
+            
             base_rates = []
             for idx, row in room_df.iterrows():
                 d = row['Date']
