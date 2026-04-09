@@ -51,10 +51,10 @@ with tab1:
         st.subheader("고정 요금제 (Fixed)")
         st.dataframe(format_price_df(FIXED_PRICE_TABLE), use_container_width=True)
 
-# --- TAB 2: 요금 역산 및 수익 시뮬레이터 ---
-# --- TAB 2: 요금 역산 및 수익 시뮬레이터 (생략 없음) ---
+# --- TAB 2: 패리티 방어 및 수익 시뮬레이터 (전략 맞춤형) ---
 with tab2:
-    st.header("마크업(할증) 및 입금가(Net) 계산기")
+    st.header("🛡️ OTA 프로모션 패리티(Parity) 방어 시뮬레이터")
+    st.markdown("**/0.65 가산**으로 박제된 엑스트라넷 요금을 기준으로, OTA 할인율을 조절했을 때 **공식 홈페이지 요금(-20%)**보다 비싸게 방어되는지(안전한지) 확인합니다.")
     
     col_input, col_result = st.columns([1, 2])
     
@@ -70,48 +70,41 @@ with tab2:
             rate_level = st.selectbox("시즌/요일", list(FIXED_PRICE_TABLE[room_type].keys()))
             base_rate = FIXED_PRICE_TABLE[room_type][rate_level]
             
-        st.write(f"**선택된 기준 요금:** {base_rate:,}원")
+        st.write(f"**오리지널 기준 요금:** {base_rate:,}원")
         
         st.divider()
-        ota_discount_pct = st.number_input("OTA 요구 프로모션 할인 (%)", value=35, step=5)
+        # 사용자는 이제 OTA 할인율만 조절하며 시뮬레이션 합니다.
+        ota_discount_pct = st.slider("OTA 표면상 프로모션 할인 (%)", min_value=0, max_value=60, value=45, step=1)
         commission_pct = st.number_input("채널 수수료 (%)", value=15, step=1)
         
     with col_result:
         st.subheader("2. 시뮬레이션 결과")
         
-        # 계산 로직
-        website_rate = int(base_rate * 0.8) # 홈페이지 요금 (비교 기준: BAR - 20%)
+        # [질문자님의 핵심 로직 적용]
+        direct_rate = int(base_rate * 0.8) # 공식 홈페이지 요금 (-20%)
+        extranet_rate = int(base_rate / 0.65) # 엑스트라넷 박제 요금 (/0.65)
         
-        # 목표하는 기준 요금(base_rate)을 지키기 위해, OTA 할인율을 역산하여 등록가를 뽑아냅니다.
-        # (만약 100% 할인을 입력해서 0으로 나누는 에러가 발생하지 않도록 안전장치 추가)
-        if ota_discount_pct < 100:
-            registered_price = int(base_rate / (1 - (ota_discount_pct / 100)))
-        else:
-            registered_price = 0 
-
-        final_sell_price = int(registered_price * (1 - (ota_discount_pct / 100)))
-        net_price = int(final_sell_price * (1 - (commission_pct / 100))) # 호텔 실제 입금가
+        ota_final_price = int(extranet_rate * (1 - (ota_discount_pct / 100))) # 고객 결제가
+        net_price = int(ota_final_price * (1 - (commission_pct / 100))) # 호텔 입금가
         
-        diff_from_web = final_sell_price - website_rate
+        # 패리티 확인 (OTA가 홈피보다 비싸야 정상)
+        diff_from_web = ota_final_price - direct_rate 
         
-        # 역산으로 인해 실제 엑스트라넷에 몇 % 할증되어 들어갔는지 역계산 (정보 제공용)
-        actual_markup_pct = round(((registered_price / base_rate) - 1) * 100, 1) if base_rate > 0 else 0
-        
-        # 메트릭 카드로 깔끔하게 표시
         st.write("---")
         m1, m2, m3 = st.columns(3)
-        m1.metric(label="🌐 공식 홈페이지 요금 (기준 -20%)", value=f"{website_rate:,}원")
-        m2.metric(label="⬆️ 엑스트라넷 등록가 (할증 적용)", value=f"{registered_price:,}원", delta=f"실제 {actual_markup_pct}% 인상됨")
-        m3.metric(label="🛒 최종 OTA 판매가 (프로모션 적용)", value=f"{final_sell_price:,}원", delta=f"{-ota_discount_pct}% 할인", delta_color="inverse")
+        m1.metric(label="🌐 홈피 사수선 (기준 -20%)", value=f"{direct_rate:,}원")
+        m2.metric(label="🛡️ 엑스트라넷 박제 요금", value=f"{extranet_rate:,}원", delta="기준가 / 0.65 적용")
+        m3.metric(label="🛒 최종 OTA 판매가", value=f"{ota_final_price:,}원", delta=f"{-ota_discount_pct}% 할인 적용", delta_color="inverse")
         
         st.write("---")
-        st.metric(label="💰 최종 호텔 입금가 (Net Income)", value=f"{net_price:,}원", delta=f"수수료 {commission_pct}% 제외")
         
-        # 인사이트 메시지
-        if diff_from_web < 0:
-            st.error(f"⚠️ **주의:** OTA 판매가가 자사 홈페이지보다 **{abs(diff_from_web):,}원** 더 저렴합니다. 할인을 줄이세요.")
+        # 패리티 방어 성공 여부에 따른 강력한 시각적 알림
+        if diff_from_web >= 0:
+            st.success(f"✅ **패리티 방어 성공!** OTA 판매가가 홈페이지보다 **{diff_from_web:,}원** 비쌉니다. (안전하게 프로모션 진행 가능)")
         else:
-            st.success(f"✅ **안전:** 홈페이지 요금보다 **{diff_from_web:,}원** 더 비싸게 세팅되어 채널 패리티가 방어됩니다.")
+            st.error(f"🚨 **비상! 패리티 붕괴:** OTA 판매가가 홈페이지보다 **{abs(diff_from_web):,}원** 더 저렴해집니다! OTA 할인율을 {ota_discount_pct}%보다 낮춰야 합니다.")
+            
+        st.metric(label="💰 최종 호텔 수익 (Net Income)", value=f"{net_price:,}원", delta=f"수수료 {commission_pct}% 제외")
             
 # --- TAB 3: 채널별 프로모션 매트릭스 ---
 with tab3:
