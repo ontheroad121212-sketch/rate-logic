@@ -1052,15 +1052,33 @@ with tab6:
                 
                 # --- 경쟁사 & 항공 데이터 로드 및 병합 ---
                 df_comp_all = get_comp_data_only()
-                df_others_agg = pd.DataFrame()
+                df_parnas = pd.DataFrame()
+                df_josun = pd.DataFrame()
+                
                 if not df_comp_all.empty:
                     latest_c = df_comp_all['search_date_str'].max()
                     df_c_latest = df_comp_all[df_comp_all['search_date_str'] == latest_c]
-                    # 호텔 이름이 정확히 매칭되거나 contains로 필터링
-                    df_others = df_c_latest[~df_c_latest['hotel_name'].str.contains('Amber', na=False)]
-                    if not df_others.empty:
-                        df_others_agg = df_others.groupby('date')['price'].agg(['min','max','mean']).reset_index()
+                    
+                    # 파르나스, 그랜드조선 데이터 개별 추출
+                    p_df = df_c_latest[df_c_latest['hotel_name'].str.contains('Parnas', na=False, case=False)]
+                    if not p_df.empty:
+                        df_parnas = p_df.groupby('date')['price'].min().reset_index().rename(columns={'price': '파르나스 예상가'})
+                    
+                    j_df = df_c_latest[df_c_latest['hotel_name'].str.contains('Josun', na=False, case=False)]
+                    if not j_df.empty:
+                        df_josun = j_df.groupby('date')['price'].min().reset_index().rename(columns={'price': '그랜드조선 예상가'})
                 
+                # 표 출력을 위해 future_data에 경쟁사 요금 병합 (날짜 기준)
+                if not df_parnas.empty:
+                    future_data = future_data.merge(df_parnas, left_on='Date', right_on='date', how='left').drop(columns=['date'])
+                else:
+                    future_data['파르나스 예상가'] = pd.NA
+                    
+                if not df_josun.empty:
+                    future_data = future_data.merge(df_josun, left_on='Date', right_on='date', how='left').drop(columns=['date'])
+                else:
+                    future_data['그랜드조선 예상가'] = pd.NA
+
                 df_flight_all = get_flight_data_only()
                 df_f_agg = pd.DataFrame()
                 if not df_flight_all.empty:
@@ -1073,13 +1091,13 @@ with tab6:
                 
                 fig_line = make_subplots(specs=[[{"secondary_y": True}]])
                 
-                # 1. 경쟁사 밴드 (회색 배경)
-                if not df_others_agg.empty:
-                    fig_line.add_trace(go.Scatter(x=df_others_agg['date'], y=df_others_agg['max'], mode='lines', line=dict(width=0), showlegend=False, hoverinfo='skip'), secondary_y=False)
-                    fig_line.add_trace(go.Scatter(x=df_others_agg['date'], y=df_others_agg['min'], mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(200,200,200,0.3)', name='경쟁사 가격 밴드'), secondary_y=False)
-                    fig_line.add_trace(go.Scatter(x=df_others_agg['date'], y=df_others_agg['mean'], mode='lines', line=dict(color='gray', dash='dot'), name='경쟁사 평균가'), secondary_y=False)
+                # 1. 경쟁사 개별 라인 추가 (회색 밴드 삭제)
+                if '파르나스 예상가' in future_data.columns and not future_data['파르나스 예상가'].isna().all():
+                    fig_line.add_trace(go.Scatter(x=future_data['Date'], y=future_data['파르나스 예상가'], mode='lines', line=dict(color='green', dash='dot', width=2), name='파르나스 최저가'), secondary_y=False)
+                if '그랜드조선 예상가' in future_data.columns and not future_data['그랜드조선 예상가'].isna().all():
+                    fig_line.add_trace(go.Scatter(x=future_data['Date'], y=future_data['그랜드조선 예상가'], mode='lines', line=dict(color='purple', dash='dot', width=2), name='그랜드조선 최저가'), secondary_y=False)
                 
-                # 2. 우리 호텔 예상 최종가
+                # 2. 우리 호텔 가격
                 fig_line.add_trace(go.Scatter(x=future_data['Date'], y=future_data['홈페이지(-20%)'], name='홈페이지(-20%)', line=dict(color='black', width=3)), secondary_y=False)
                 fig_line.add_trace(go.Scatter(x=future_data['Date'], y=future_data['트립 예상가'], name='트립 예상가', line=dict(color='#1f77b4', width=2)), secondary_y=False)
                 fig_line.add_trace(go.Scatter(x=future_data['Date'], y=future_data['부킹 예상가'], name='부킹 예상가', line=dict(color='#003580', width=2)), secondary_y=False)
@@ -1094,10 +1112,18 @@ with tab6:
                 fig_line.update_yaxes(title_text="항공권 가격 (원) - 점선", secondary_y=True, showgrid=False)
                 st.plotly_chart(fig_line, use_container_width=True)
 
-                # 표 렌더링
+                # 4. 표 렌더링 (경쟁사 데이터 하단 행에 추가)
                 future_data['날짜'] = future_data['Date'].apply(lambda x: x.strftime('%m/%d'))
-                display_cols = ['날짜', '기준가(BAR)', '홈페이지(-20%)', 'OTA등록가(/0.65)', '트립 예상가', '부킹 예상가', '아고다 예상가']
+                
+                # 표에 출력될 컬럼 순서 (파르나스, 조선 추가됨)
+                display_cols = ['날짜', '기준가(BAR)', '홈페이지(-20%)', 'OTA등록가(/0.65)', '트립 예상가', '부킹 예상가', '아고다 예상가', '파르나스 예상가', '그랜드조선 예상가']
+                
+                # 표 가로로 돌리기
                 pivot_proj = future_data[display_cols].set_index('날짜').T
+                
+                # 보기 좋게 빈칸(NaN)은 '-'로 처리하고, 소수점은 정수로 변환 시도
+                pivot_proj = pivot_proj.fillna('-')
+                
                 st.write("---")
                 st.subheader(f"🔍 {proj_room} 요금 프로젝션 상세표")
                 st.dataframe(pivot_proj, use_container_width=True)
