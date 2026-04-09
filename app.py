@@ -398,6 +398,18 @@ with st.sidebar:
             st.success("재고 데이터 로드 및 파싱 완벽 성공!")
 
     st.divider()
+    st.header("📋 전체 요금표 조회")
+    with st.expander("👀 요금표 펼쳐보기", expanded=False):
+        st.subheader("변동 요금제 (Dynamic)")
+        st.dataframe(pd.DataFrame(PRICE_TABLE).T, use_container_width=True)
+        
+        st.subheader("고정 요금제 (Fixed)")
+        st.dataframe(pd.DataFrame(FIXED_PRICE_TABLE).T, use_container_width=True)
+        
+        st.subheader("고정 객실 수동 인상가 (BAR0)")
+        st.dataframe(pd.DataFrame([FIXED_BAR0_TABLE]).T.rename(columns={0: "BAR0"}), use_container_width=True)
+
+    st.divider()
     st.header("⚙️ 시뮬레이터 탭용 채널 관리")
     new_ota = st.text_input("새 OTA 명칭 (탭 생성)")
     if st.button("➕ 채널 탭 생성"):
