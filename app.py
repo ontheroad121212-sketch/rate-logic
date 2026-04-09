@@ -51,60 +51,70 @@ with tab1:
         st.subheader("고정 요금제 (Fixed)")
         st.dataframe(format_price_df(FIXED_PRICE_TABLE), use_container_width=True)
 
-# --- TAB 2: 패리티 방어 및 수익 시뮬레이터 (전략 맞춤형) ---
 with tab2:
-    st.header("🛡️ OTA 프로모션 패리티(Parity) 방어 시뮬레이터")
-    st.markdown("**/0.65 가산**으로 박제된 엑스트라넷 요금을 기준으로, OTA 할인율을 조절했을 때 **공식 홈페이지 요금(-20%)**보다 비싸게 방어되는지(안전한지) 확인합니다.")
+    st.header("🧮 전략적 요금 할증 & 패리티 시뮬레이터")
+    st.write("인상 방식부터 할인율까지 모든 변수를 조절하여 최적의 OTA 등록가를 찾습니다.")
     
     col_input, col_result = st.columns([1, 2])
     
     with col_input:
-        st.subheader("1. 조건 입력")
-        room_type = st.selectbox("객실 타입", DYNAMIC_ROOMS + list(FIXED_PRICE_TABLE.keys()))
-        
-        # 선택한 객실에 따라 선택 가능한 요금 단계 변경
+        st.subheader("1. 기준 및 할증 설정")
+        # 객실 및 기준가 선택
+        room_type = st.selectbox("객실 타입", DYNAMIC_ROOMS + list(FIXED_PRICE_TABLE.keys()), index=2) # 기본 FDB
         if room_type in DYNAMIC_ROOMS:
-            rate_level = st.selectbox("요금 단계", list(PRICE_TABLE[room_type].keys()))
+            rate_level = st.selectbox("요금 단계", list(PRICE_TABLE[room_type].keys()), index=2) # 기본 BAR6
             base_rate = PRICE_TABLE[room_type][rate_level]
         else:
             rate_level = st.selectbox("시즌/요일", list(FIXED_PRICE_TABLE[room_type].keys()))
             base_rate = FIXED_PRICE_TABLE[room_type][rate_level]
             
-        st.write(f"**오리지널 기준 요금:** {base_rate:,}원")
+        st.info(f"**선택된 기준 요금:** {base_rate:,}원")
         
         st.divider()
-        # 사용자는 이제 OTA 할인율만 조절하며 시뮬레이션 합니다.
-        ota_discount_pct = st.slider("OTA 표면상 프로모션 할인 (%)", min_value=0, max_value=60, value=45, step=1)
-        commission_pct = st.number_input("채널 수수료 (%)", value=15, step=1)
+        # 할증(Markup) 방식 선택
+        markup_method = st.radio("마크업 계산 방식", ["역산 방식 (/ 0.xx)", "단순 가산 방식 (* 1.xx)"])
+        markup_val = st.number_input("마크업 비율 (%)", value=35, step=1)
+        
+        st.divider()
+        # 할인 및 수수료 설정
+        ota_discount_val = st.number_input("OTA 프로모션 할인 (%)", value=45, step=1)
+        commission_val = st.number_input("채널 수수료 (%)", value=15, step=1)
         
     with col_result:
         st.subheader("2. 시뮬레이션 결과")
         
-        # [질문자님의 핵심 로직 적용]
-        direct_rate = int(base_rate * 0.8) # 공식 홈페이지 요금 (-20%)
-        extranet_rate = int(base_rate / 0.65) # 엑스트라넷 박제 요금 (/0.65)
+        # 1. 홈페이지 판매가 (-20%)
+        web_price = int(base_rate * 0.8)
         
-        ota_final_price = int(extranet_rate * (1 - (ota_discount_pct / 100))) # 고객 결제가
-        net_price = int(ota_final_price * (1 - (commission_pct / 100))) # 호텔 입금가
-        
-        # 패리티 확인 (OTA가 홈피보다 비싸야 정상)
-        diff_from_web = ota_final_price - direct_rate 
-        
-        st.write("---")
-        m1, m2, m3 = st.columns(3)
-        m1.metric(label="🌐 홈피 사수선 (기준 -20%)", value=f"{direct_rate:,}원")
-        m2.metric(label="🛡️ 엑스트라넷 박제 요금", value=f"{extranet_rate:,}원", delta="기준가 / 0.65 적용")
-        m3.metric(label="🛒 최종 OTA 판매가", value=f"{ota_final_price:,}원", delta=f"{-ota_discount_pct}% 할인 적용", delta_color="inverse")
-        
-        st.write("---")
-        
-        # 패리티 방어 성공 여부에 따른 강력한 시각적 알림
-        if diff_from_web >= 0:
-            st.success(f"✅ **패리티 방어 성공!** OTA 판매가가 홈페이지보다 **{diff_from_web:,}원** 비쌉니다. (안전하게 프로모션 진행 가능)")
+        # 2. 엑스트라넷 등록가 계산
+        if markup_method == "역산 방식 (/ 0.xx)":
+            reg_price = int(base_rate / (1 - markup_val/100)) if markup_val < 100 else 0
         else:
-            st.error(f"🚨 **비상! 패리티 붕괴:** OTA 판매가가 홈페이지보다 **{abs(diff_from_web):,}원** 더 저렴해집니다! OTA 할인율을 {ota_discount_pct}%보다 낮춰야 합니다.")
+            reg_price = int(base_rate * (1 + markup_val/100))
             
-        st.metric(label="💰 최종 호텔 수익 (Net Income)", value=f"{net_price:,}원", delta=f"수수료 {commission_pct}% 제외")
+        # 3. 최종 OTA 판매가 및 입금가
+        final_ota_price = int(reg_price * (1 - ota_discount_val/100))
+        net_income = int(final_ota_price * (1 - commission_val/100))
+        
+        # 4. 패리티 비교
+        price_diff = final_ota_price - web_price
+        
+        # 결과 대시보드 표시
+        m1, m2 = st.columns(2)
+        m1.metric("🌐 홈페이지 판매가", f"{web_price:,}원")
+        m2.metric("🛡️ 엑스트라넷 등록가", f"{reg_price:,}원", f"{markup_val}% 할증")
+        
+        st.write("---")
+        
+        st.metric("🛒 최종 OTA 고객 판매가", f"{final_ota_price:,}원", f"{-ota_discount_val}% 프로모션 적용", delta_color="inverse")
+        
+        if price_diff >= 0:
+            st.success(f"✅ **패리티 안전:** 홈페이지보다 **{price_diff:,}원** 비싸게 판매됩니다.")
+        else:
+            st.error(f"🚨 **패리티 위험:** 홈페이지보다 **{abs(price_diff):,}원** 저렴합니다! 설정을 변경하세요.")
+            
+        st.divider()
+        st.metric("💰 호텔 최종 입금가 (Net)", f"{net_income:,}원", f"수수료 {commission_val}% 제외")
             
 # --- TAB 3: 채널별 프로모션 매트릭스 ---
 with tab3:
