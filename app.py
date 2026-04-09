@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import math
+import datetime
 
 # --- 1. 전역 설정 및 데이터 ---
 st.set_page_config(page_title="요금 시뮬레이터", layout="wide")
@@ -297,3 +298,67 @@ with tab3:
             rb2.success(f"✅ **방어 성공:** 홈페이지 요금보다 **{parity_diff_b:,}원** 비쌉니다.")
         else:
             rb2.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_b):,}원** 저렴합니다! 할인 중복을 해제하세요.")
+
+# --- TAB 4: 채널별 프로모션 스케줄 및 현황 관리 ---
+# (코드 상단에 tab4를 추가해주세요: tab1, tab2, tab3, tab4 = st.tabs([...]))
+
+with tab4:
+    st.header("📅 채널별 프로모션 스케줄 및 현황 관리")
+    st.markdown("각 OTA 채널에 세팅해 둔 프로모션의 기간과 할인율을 기록하고 관리합니다. 셀을 더블클릭하여 직접 수정하거나 행을 추가할 수 있습니다.")
+
+    # 1. 초기 데이터 세팅 (세션 스테이트를 사용하여 수정된 데이터 유지)
+    if 'promo_schedule' not in st.session_state:
+        today = datetime.date.today()
+        # 예시 데이터 (직접 수정 가능)
+        initial_data = [
+            {"채널명": "Trip.com", "프로모션명": "Spring Early Bird", "그룹(구분)": "Group 1", "할인율(%)": 10, "시작일": today, "종료일": today + datetime.timedelta(days=30)},
+            {"채널명": "Booking.com", "프로모션명": "모바일 타겟 요금", "그룹(구분)": "타겟 요금", "할인율(%)": 10, "시작일": today - datetime.timedelta(days=10), "종료일": today + datetime.timedelta(days=90)},
+            {"채널명": "Agoda", "프로모션명": "24h 팝업 특가", "그룹(구분)": "타임세일", "할인율(%)": 45, "시작일": today - datetime.timedelta(days=2), "종료일": today - datetime.timedelta(days=1)},
+        ]
+        st.session_state.promo_schedule = pd.DataFrame(initial_data)
+
+    df = st.session_state.promo_schedule
+
+    # 2. 상태(Status) 자동 계산 로직
+    today_dt = pd.to_datetime(datetime.date.today())
+    
+    def get_status(row):
+        start = pd.to_datetime(row['시작일'])
+        end = pd.to_datetime(row['종료일'])
+        if pd.isna(start) or pd.isna(end):
+            return "⚪ 미정"
+        elif end < today_dt:
+            return "⚫ 종료됨"
+        elif start > today_dt:
+            return "🟡 진행 예정"
+        else:
+            return "🟢 진행 중"
+
+    df['상태'] = df.apply(get_status, axis=1)
+
+    # 3. 엑셀 형태의 데이터 에디터 출력
+    st.subheader("📝 프로모션 관리 대시보드")
+    
+    # 채널별 필터 기능
+    filter_ch = st.multiselect("특정 채널 필터링", options=df['채널명'].unique())
+    
+    display_df = df if not filter_ch else df[df['채널명'].isin(filter_ch)]
+
+    edited_df = st.data_editor(
+        display_df,
+        num_rows="dynamic", # 사용자 행 추가/삭제 허용
+        use_container_width=True,
+        column_config={
+            "채널명": st.column_config.SelectboxColumn(options=["Trip.com", "Booking.com", "Agoda", "Expedia", "Direct(홈페이지)"], required=True),
+            "프로모션명": st.column_config.TextColumn(required=True),
+            "할인율(%)": st.column_config.NumberColumn(min_value=0, max_value=100, step=1, format="%d%%"),
+            "시작일": st.column_config.DateColumn(format="YYYY-MM-DD"),
+            "종료일": st.column_config.DateColumn(format="YYYY-MM-DD"),
+            "상태": st.column_config.TextColumn(disabled=True) # 상태는 자동 계산되므로 수정 불가
+        }
+    )
+
+    # 수정된 데이터를 세션에 저장 (상태 컬럼은 제외하고 저장하여 다음 번에 재계산되도록 함)
+    st.session_state.promo_schedule = edited_df.drop(columns=['상태'])
+
+    st.caption("💡 표 하단의 빈 공간을 클릭하면 새로운 프로모션을 추가할 수 있으며, 셀을 클릭하고 'Delete' 키를 누르면 삭제됩니다.")
