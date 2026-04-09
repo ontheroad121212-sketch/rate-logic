@@ -3,6 +3,7 @@ import pandas as pd
 import math
 import datetime
 import plotly.express as px  # 👈 간트 차트를 위한 라이브러리
+import re
 
 # --- 1. 전역 설정 및 데이터 ---
 st.set_page_config(page_title="앰버퓨어힐 전략 시뮬레이터", layout="wide")
@@ -26,13 +27,28 @@ FIXED_PRICE_TABLE = {
     "PPV(온수O)": {"UND1": 1004000, "UND2": 1154000, "MID1": 1154000, "MID2": 1304000, "UPP1": 1304000, "UPP2": 1554000, "UPP3":1704000},
 }
 
-# --- 채널 관리 세션 ---
+# 👈 [신규 추가] 엑셀 날짜 형식을 인식하기 위한 파서 함수
+def robust_date_parser(d_val):
+    if pd.isna(d_val): return None
+    try:
+        # 엑셀 날짜 일련번호 처리
+        if isinstance(d_val, (int, float)): return (pd.to_datetime('1899-12-30') + pd.to_timedelta(d_val, 'D')).date()
+        # 문자열 날짜 처리
+        s = str(d_val).strip().replace('.', '-').replace('/', '-').replace(' ', '')
+        match = re.search(r'(\d{1,2})-(\d{1,2})', s)
+        if match: return datetime.date(2026, int(match.group(1)), int(match.group(2)))
+    except: pass
+    return None
+
+# --- 채널 및 마스터 요금 세션 ---
 if 'ota_channels' not in st.session_state:
     st.session_state.ota_channels = ["Trip.com", "Booking.com", "Agoda", "야놀자", "여기어때"] 
+if 'master_rates' not in st.session_state:
+    st.session_state.master_rates = pd.DataFrame() # 👈 [신규 추가] 엑셀 데이터 저장소
 
 st.title("🏨 앰버퓨어힐 요금 및 프로모션 통합 시뮬레이터")
 
-# --- 사이드바: 탭 4용 커스텀 채널 추가 ---
+# --- 사이드바: 채널 추가 및 요금표 업로드 ---
 with st.sidebar:
     st.header("⚙️ 스케줄러 채널 추가")
     st.write("새로운 OTA를 추가하면 '탭 4' 내부에 전용 스케줄 관리 탭이 생성됩니다.")
@@ -47,14 +63,39 @@ with st.sidebar:
     if st.button("🗑️ 추가된 채널 초기화"):
         st.session_state.ota_channels = ["Trip.com", "Booking.com", "Agoda"]
         st.rerun()
+        
+    st.divider()
+    # 👈 [신규 추가] 엑셀 파일 업로더
+    st.header("📂 장기 요금표 업데이트")
+    st.caption("탭 6 프로젝션을 위해 요금 엑셀 파일을 업로드하세요.")
+    uploaded_file = st.file_uploader("요금표 선택 (xlsx)", type="xlsx")
+    
+    if uploaded_file:
+        new_extracted = []
+        # 제공해주신 양식 기준 행 매핑
+        ROW_MAP = {4:"GDB", 5:"GDF", 6:"FDB", 7:"FDE", 8:"FPT", 9:"FFD", 10:"HDP", 11:"HDT", 12:"HDF", 13:"PPV"}
+        df_raw = pd.read_excel(uploaded_file, header=None)
+        dates_raw = df_raw.iloc[2, 2:].values
+        
+        for r_idx, rid in ROW_MAP.items():
+            if r_idx < len(df_raw):
+                for d_val, price in zip(dates_raw, df_raw.iloc[r_idx, 2:].values):
+                    d_obj = robust_date_parser(d_val)
+                    if d_obj:
+                        new_extracted.append({"Date": d_obj, "RoomID": rid, "BaseRate": price})
+        
+        if new_extracted:
+            st.session_state.master_rates = pd.DataFrame(new_extracted)
+            st.success(f"✅ {len(st.session_state.master_rates)}건 요금 데이터 업데이트 완료!")
 
 # --- 메인 탭 구성 ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 1. 기준 요금표", 
     "🧮 2. 요금 역산 시뮬", 
     "🧱 3. 트립/부킹/아고다 실전", 
     "📅 4. 채널별 스케줄",
-    "📋 5. 경영진 리포트"  
+    "📋 5. 경영진 리포트",  
+    "🗓️ 6. 장기 요금 프로젝션" # 👈 [신규 추가]
 ])
 
 # ==========================================
@@ -215,7 +256,6 @@ with tab3:
     st.write("---")
     st.subheader("2. 채널별 프로모션 중복(Stacking) 시뮬레이션")
     
-    # 👈 아고다 탭 추가
     sub_tab1, sub_tab2, sub_tab3 = st.tabs(["🔵 트립닷컴 (완벽 합산형)", "🟦 부킹닷컴 (조건부 복리형)", "🔴 아고다 (무한복리 & 마진컷)"])
     
     # ---------------- 트립닷컴 ----------------
@@ -354,7 +394,7 @@ with tab3:
         else:
             rb2.error(f"🚨 **방어 실패:** 홈페이지 요금보다 **{abs(parity_diff_b):,}원** 저렴합니다! 할인 중복을 해제하세요.")
 
-    # ---------------- [신규 추가] 아고다 ----------------
+    # ---------------- 아고다 ----------------
     with sub_tab3:
         st.markdown("#### 아고다 실전 시뮬레이션 (마진컷 대비)")
         st.markdown("아고다는 모든 할인이 **무자비한 순차적 복리**로 적용되며, 호텔의 통제를 벗어나는 **'마진컷(Agoda Funded)'**이 수시로 개입하여 패리티를 박살 냅니다.")
@@ -404,7 +444,7 @@ with tab3:
         else:
             ra2.error(f"🚨 **방어 실패 (패리티 붕괴):** 마진컷 개입 시 홈페이지 요금보다 **{abs(parity_diff_a):,}원** 저렴해집니다! 엑스트라넷 요금을 더 할증하거나 VIP 할인을 조정하세요.")
 
-    # ---------------- 블라인드 테스트 (유지 및 아고다 추가) ----------------
+    # ---------------- 블라인드 테스트 ----------------
     st.write("---")
     st.subheader("3. 🕵️ 블라인드 테스트 (OTA 자체 특가 시뮬레이터)")
     st.markdown("우리가 통제할 수 없는 OTA의 **'자체 쿠폰'**, **'비공개 회원가(Private Rate)'**, **'지역 한정 특가'**가 위에서 계산된 최종 요금에 갑자기 덧붙었을 때, 홈페이지 패리티가 털리는지 미리 점검합니다.")
@@ -453,6 +493,11 @@ with tab3:
                 st.success(f"✅ **방어!** 홈피보다 {blind_diff_a:,}원 비쌈")
             else:
                 st.error(f"⚠️ **붕괴!** 홈피보다 {abs(blind_diff_a):,}원 저렴함")
+
+    # 👇 탭 6 연동을 위한 승수(Multiplier) 저장 (ZeroDivisionError 방지)
+    trip_mult = final_price_t / extranet_rate if extranet_rate > 0 else 1
+    bk_mult = final_price_b / extranet_rate if extranet_rate > 0 else 1
+    ag_mult = final_price_a / extranet_rate if extranet_rate > 0 else 1
 
 # ==========================================
 # TAB 4: 프로모션 스케줄 및 현황 관리 (+Gantt 차트)
@@ -603,3 +648,59 @@ with tab5:
         data=final_report, 
         file_name=f"Amber_Sales_Report_{datetime.date.today()}.txt"
     )
+
+# ==========================================
+# 👈 [신규 추가] TAB 6: 장기 요금 프로젝션 (오늘 ~ 12월)
+# ==========================================
+with tab6:
+    st.header("🗓️ 장기 요금 프로젝션 (판매가 추이 분석)")
+    st.markdown("사이드바에서 업로드된 마스터 요금표를 기반으로 연말까지의 **홈페이지가**와 **OTA별 최종 판매가**를 시뮬레이션합니다.")
+    
+    if st.session_state.master_rates.empty:
+        st.warning("👈 사이드바 '장기 요금표 업데이트'에서 엑셀 파일을 먼저 업로드해주세요.")
+    else:
+        proj_room = st.selectbox("분석할 객실 타입 선택", DYNAMIC_ROOMS + list(FIXED_PRICE_TABLE.keys()), key="proj_room")
+        
+        room_data = st.session_state.master_rates[st.session_state.master_rates['RoomID'] == proj_room].copy()
+        
+        if room_data.empty:
+            st.error("해당 객실에 대한 데이터가 엑셀 요금표에 없습니다.")
+        else:
+            room_data = room_data.sort_values('Date')
+            # 오늘 이후 데이터만 필터링
+            future_data = room_data[room_data['Date'] >= datetime.date.today()].copy()
+            
+            if future_data.empty:
+                st.warning("오늘 이후의 요금 데이터가 없습니다.")
+            else:
+                # 1. 동적 요금 계산 로직
+                future_data['기준가(BAR)'] = future_data['BaseRate'].astype(int)
+                future_data['홈페이지(-20%)'] = (future_data['BaseRate'] * 0.8).astype(int)
+                future_data['OTA등록가(/0.65)'] = (future_data['BaseRate'] / 0.65).astype(int)
+                
+                # 2. 탭 3의 승수를 가져와서 채널별 예상 최종가 자동 계산 (핵심 기능)
+                future_data['트립 예상가'] = (future_data['OTA등록가(/0.65)'] * trip_mult).astype(int)
+                future_data['부킹 예상가'] = (future_data['OTA등록가(/0.65)'] * bk_mult).astype(int)
+                future_data['아고다 예상가'] = (future_data['OTA등록가(/0.65)'] * ag_mult).astype(int)
+                
+                future_data['날짜'] = future_data['Date'].apply(lambda x: x.strftime('%m/%d'))
+                
+                display_cols = ['날짜', '기준가(BAR)', '홈페이지(-20%)', 'OTA등록가(/0.65)', '트립 예상가', '부킹 예상가', '아고다 예상가']
+                display_proj = future_data[display_cols]
+                
+                # 3. 가로형 표 (날짜가 가로축) 변환
+                pivot_proj = display_proj.set_index('날짜').T
+                
+                st.write("---")
+                st.subheader(f"🔍 {proj_room} 장기 요금 프로젝션 상세")
+                st.caption("※ 각 채널별 예상가는 **'탭 3'에서 현재 세팅해둔 프로모션 할인율을 동일하게 적용**하여 동적으로 계산된 값입니다.")
+                st.dataframe(pivot_proj, use_container_width=True)
+                
+                # 4. 시각화 그래프
+                st.write("---")
+                st.subheader("📈 채널별 패리티 변동 추이 그래프")
+                chart_df = future_data.melt(id_vars=['Date'], 
+                                            value_vars=['홈페이지(-20%)', '트립 예상가', '부킹 예상가', '아고다 예상가'], 
+                                            var_name='채널', value_name='최종요금')
+                fig_line = px.line(chart_df, x='Date', y='최종요금', color='채널', title=f"{proj_room} 채널별 최종 판매가 시뮬레이션")
+                st.plotly_chart(fig_line, use_container_width=True)
