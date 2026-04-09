@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta  # 👈 [수정됨] timedelta 추가
 import firebase_admin
 from firebase_admin import credentials, firestore
 import math
@@ -824,7 +824,7 @@ with tab4:
             st.subheader(f"📝 {ch_name} 프로모션 현황판")
             state_key = f'promo_schedule_{ch_name}'
             if state_key not in st.session_state:
-                st.session_state[state_key] = pd.DataFrame([{"프로모션명": "예시 특가", "할인율(%)": 10, "시작일": date.today(), "종료일": date.today() + datetime.timedelta(days=7)}])
+                st.session_state[state_key] = pd.DataFrame([{"프로모션명": "예시 특가", "할인율(%)": 10, "시작일": date.today(), "종료일": date.today() + timedelta(days=7)}])
 
             df = st.session_state[state_key]
             today_dt = pd.to_datetime(date.today())
@@ -913,7 +913,6 @@ with tab6:
             st.error("해당 객실에 대한 재고 데이터가 없습니다.")
         else:
             base_rates = []
-            # DB 데이터 라인별로 요금 다이내믹 계산!
             for idx, row in room_df.iterrows():
                 d = row['Date']
                 avail = row['Available']
@@ -935,7 +934,6 @@ with tab6:
                 future_data['홈페이지(-20%)'] = (future_data['BaseRate'] * 0.8).astype(int)
                 future_data['OTA등록가(/0.65)'] = (future_data['BaseRate'] / 0.65).astype(int)
                 
-                # 탭 3 승수를 사용해 채널별 가격 덮어씌우기
                 future_data['트립 예상가'] = (future_data['OTA등록가(/0.65)'] * trip_mult).astype(int)
                 future_data['부킹 예상가'] = (future_data['OTA등록가(/0.65)'] * bk_mult).astype(int)
                 future_data['아고다 예상가'] = (future_data['OTA등록가(/0.65)'] * ag_mult).astype(int)
