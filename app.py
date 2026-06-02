@@ -676,7 +676,7 @@ with tab2:
         st.info(f"**선택된 기준 요금:** {base_rate:,}원")
         st.divider()
         markup_method = st.radio("마크업 계산 방식", ["역산 방식 (/ 0.xx)", "단순 가산 방식 (* 1.xx)"], key="t2_markup_m")
-        markup_val = st.number_input("마크업 비율 (%)", value=35, step=1, key="t2_markup_v")
+        markup_val = st.number_input("마크업 비율 (%)", value=28, step=1, key="t2_markup_v")
         ota_discount_val = st.number_input("목표 OTA 프로모션 할인 (%)", value=45, step=1, key="t2_ota_d")
         commission_val = st.number_input("채널 수수료 (%)", value=15, step=1, key="t2_comm")
         
@@ -741,8 +741,8 @@ with tab3:
     homepage_rate = int(base_rate_t3 * 0.8) 
     extranet_rate = int(base_rate_t3 / 0.65) 
     m_base1, m_base2 = st.columns(2)
-    m_base1.metric("🌐 사수해야 할 홈페이지 요금", f"{homepage_rate:,}원", "-20% 적용")
-    m_base2.metric("🛡️ OTA 엑스트라넷 등록 요금", f"{extranet_rate:,}원", "/0.65 가산됨")
+    m_base1.metric("🌐 사수해야 할 홈페이지 요금", f"{homepage_rate:,}원", "-15% 적용")
+    m_base2.metric("🛡️ OTA 엑스트라넷 등록 요금", f"{extranet_rate:,}원", "/0.72 가산됨")
 
     st.write("---")
     st.subheader("2. 채널별 프로모션 중복(Stacking) 시뮬레이션")
