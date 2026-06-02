@@ -738,8 +738,8 @@ with tab3:
             rate_level_t3 = st.selectbox("시즌/요일 선택", list(FIXED_PRICE_TABLE[room_type_t3].keys()), key="t3_rate")
             base_rate_t3 = FIXED_PRICE_TABLE[room_type_t3][rate_level_t3]
 
-    homepage_rate = int(base_rate_t3 * 0.8) 
-    extranet_rate = int(base_rate_t3 / 0.65) 
+    homepage_rate = int(base_rate_t3 * 0.85) 
+    extranet_rate = int(base_rate_t3 / 0.72) 
     m_base1, m_base2 = st.columns(2)
     m_base1.metric("🌐 사수해야 할 홈페이지 요금", f"{homepage_rate:,}원", "-15% 적용")
     m_base2.metric("🛡️ OTA 엑스트라넷 등록 요금", f"{extranet_rate:,}원", "/0.72 가산됨")
